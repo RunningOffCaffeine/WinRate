@@ -19,36 +19,75 @@ import pyautogui
 import keyboard
 import pygetwindow as gw
 
-# ─────────────────────────── Runtime safety ────────────────────────────
-pyautogui.FAILSAFE = True           # mouse to top-left aborts
-pyautogui.PAUSE    = 0.05           # 50 ms after every PyAutoGUI call
+# ───────────────────────── Runtime safety ──────────────────────────────
+pyautogui.FAILSAFE = True
+pyautogui.PAUSE    = 0.05
 
-# ───────────────────────── Frame-grab throttle ─────────────────────────
-CHECK_INTERVAL = 0.05               # seconds → one new screenshot every 50 ms
-last_grab      = 0.0                # monotonic timestamp of last screenshot
+# ─────────────────────── user-configurable settings ────────────────────
+try:
+    delay_ms = int(input("Frame-grab interval in ms (default 50, min 10): ") or 50)
+    if delay_ms < 10:
+        raise ValueError("Minimum delay is 10 ms.")
+    else:
+        # print(f"Frame-grab interval set to {delay_ms} ms")
+        pass
+    print(f"Frame-grab interval set to {delay_ms} ms")
+except ValueError:
+    delay_ms = 50
+    print("Defaulting to 50 ms.")
+
+CHECK_INTERVAL = max(delay_ms, 10) / 1000.0   # never < 10 ms
+last_grab      = 0.0
+
+try:
+    hdr_flag = input("Is the game in HDR mode? [t/f] (default f): ").strip().lower()
+    is_HDR = (hdr_flag == 't')
+    if is_HDR:
+        print("Mode == HDR")
+    else:
+        print("Mode == SDR")
+except ValueError:
+    is_HDR = False
+    print("Defaulting to SDR mode.")
+
+try:
+    debug_flag = input("Print Debug Thresholds? [t/f] (default f): ").strip().lower()
+    DEBUG_MATCH = (debug_flag == 't')
+    if DEBUG_MATCH:
+        DEBUG_MATCH = True
+        print("Debug mode enabled.")
+    else:
+        DEBUG_MATCH = False
+        print("Debug mode disabled.")
+except ValueError:
+    DEBUG_MATCH = False
+    print("Defaulting to Debug mode disabled.")
+
+skip_debug = False
+printed_this_loop = False
 
 # ───────────────────────── Template metadata ───────────────────────────
 Tmpl = namedtuple("Tmpl", "img thresh roi")    # roi == (x, y, w, h) or None
 
+# name                : (basename-no-suffix,  threshold,       roi)
 TEMPLATE_SPEC = {
-    # name               (filename,                threshold,  roi)
-    "winrate"         : ("winrate.png",               0.82,      None),
-    "speech_menu"     : ("Speech Menu.png",           0.75,      None),
-    "fast_forward"    : ("Fast Forward.png",          0.75,      None),
-    "confirm"         : ("Confirm.png",               0.70,      None),
-    "black_confirm"   : ("Black Confirm.png",         0.70,      None),
-    "battle"          : ("To Battle.png",             0.70,      None),
-    "skip"            : ("Skip.png",                  0.70,      None),
-    "enter"           : ("Enter.png",                 0.65,      None),
-    "choice_needed"   : ("Choice Check.png",          0.70,      None),
-    "fusion_check"    : ("Fusion Check.png",          0.70,      None),
-    "ego_check"       : ("EGO Check.png",             0.70,      None),
-    "commence"        : ("Battle Commence.png",       0.80,      None),
-    "proceed"         : ("Proceed.png",               0.80,      None),
-    "very_high"       : ("Very High.png",             0.80,      None),
-    "commence"        : ("Commence.png",              0.80,      None),
-    "commence_battle" : ("Commence Battle.png",       0.80,      None),
-    "continue"        : ("Continue.png",              0.80,      None),
+    "winrate"         : ("winrate",                0.82,      None),
+    "speech_menu"     : ("Speech Menu",            0.75,      None),
+    "fast_forward"    : ("Fast Forward",           0.75,      None),
+    "confirm"         : ("Confirm",                0.70,      None),
+    "black_confirm"   : ("Black Confirm",          0.70,      None),
+    "battle"          : ("To Battle",              0.70,      None),
+    "skip"            : ("Skip",                   0.70,      None),
+    "enter"           : ("Enter",                  0.65,      None),
+    "choice_needed"   : ("Choice Check",           0.70,      None),
+    "fusion_check"    : ("Fusion Check",           0.70,      None),
+    "ego_check"       : ("EGO Check",              0.30,      None),
+    "ego_get"         : ("EGO Get",                0.80,      None),
+    "proceed"         : ("Proceed",                0.80,      None),
+    "very_high"       : ("Very High",              0.80,      None),
+    "commence"        : ("Commence",               0.80,      None),
+    "commence_battle" : ("Commence Battle",        0.80,      None),
+    "continue"        : ("Continue",               0.80,      None),
 }
 
 # ────────────────────────────  Helpers  ────────────────────────────────
@@ -57,14 +96,27 @@ def resource_path(fname: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), fname)
 
 def load_templates() -> dict[str, Tmpl]:
-    """Load images → grayscale, verify that all files exist."""
+    """Load images → grayscale, verify that all files exist (alpha preserved)."""
+    suffix = {True: " HDR.png", False: " SDR.png"}[is_HDR]
     out: dict[str, Tmpl] = {}
-    for name, (file, thresh, roi) in TEMPLATE_SPEC.items():
-        img = cv2.imread(resource_path(file), cv2.IMREAD_UNCHANGED)
+
+    for name, (base, thresh, roi) in TEMPLATE_SPEC.items():
+        file = base + suffix
+        if not os.path.isfile(resource_path(file)):          # fallback to vanilla
+            file = base + ".png"
+
+        img = cv2.imread(resource_path(file), cv2.IMREAD_UNCHANGED)  # ← keep alpha
         if img is None:
-            raise FileNotFoundError(f"Template image not found: {file}")
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            raise FileNotFoundError(f"Template not found: {file}")
+
+        # 4-channel (BGRA) needs a different code than 3-channel (BGR)
+        if img.shape[2] == 4:                                # BGRA image
+            gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
+        else:                                                # BGR image
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
         out[name] = Tmpl(gray, thresh, roi)
+
     return out
 
 TEMPLATES = load_templates()
@@ -76,8 +128,11 @@ def active_window_title() -> str:
     except Exception:
         return ""
 
-def best_match(screen_gray: np.ndarray, tmpl: Tmpl):
-    """Return (x, y) centre of best match or None."""
+def best_match(screen_gray: np.ndarray, tmpl: Tmpl, *, label: str = ""):
+    """
+    Return (x, y) centre of best match or None.
+    When DEBUG_MATCH is True, always print the max correlation score.
+    """
     if tmpl.roi:
         x, y, w, h = tmpl.roi
         region = screen_gray[y:y+h, x:x+w]
@@ -88,13 +143,16 @@ def best_match(screen_gray: np.ndarray, tmpl: Tmpl):
     res = cv2.matchTemplate(region, tmpl.img, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, max_loc = cv2.minMaxLoc(res)
 
+    if DEBUG_MATCH and not skip_debug:            # ← check the flag
+        tag = label or next(k for k, v in TEMPLATES.items() if v is tmpl)
+        print(f"{tag:<18s}: {max_val:.3f}")
+        printed_this_loop = True            # ← mark that we printed
+
     if max_val < tmpl.thresh:
         return None
 
     tw, th = tmpl.img.shape[::-1]
-    cx = max_loc[0] + tw // 2 + x
-    cy = max_loc[1] + th // 2 + y
-    return (cx, cy)
+    return (max_loc[0] + tw // 2 + x, max_loc[1] + th // 2 + y)
 
 def click(pt: tuple[int, int],
           label: str | None = None,
@@ -117,18 +175,23 @@ exit_event = threading.Event()    # set by hotkey → stops current run
 
 def limbus_bot():
     """Runs until exit_event is set, then returns to caller."""
+    global last_grab
+    global skip_debug
+    global printed_this_loop
     need_refresh = True
     screen_gray: np.ndarray | None = None
 
     while not exit_event.is_set():
         if "LimbusCompany" in active_window_title():
 
-            # ── grab a new frame only when 100 ms have passed OR we explicitly asked for one ──
+            # ── grab a new frame only when CHECK_INTERVAL ms have passed OR we explicitly asked for one ──
             now = time.perf_counter()
             if need_refresh or now - last_grab >= CHECK_INTERVAL:
                 screen_gray = refresh_screen()
                 last_grab   = now
                 need_refresh = False
+                skip_debug  = False          # ← allow debug prints again
+                printed_this_loop = False    # ← reset printed flag
 
             # 1) Win-rate check
             if (pt := best_match(screen_gray, TEMPLATES["winrate"])):
@@ -141,12 +204,13 @@ def limbus_bot():
                 pyautogui.moveTo(w // 2, int(h * 0.10))
                 pyautogui.click()
                 time.sleep(0.1)
-
                 keyboard.press_and_release("p")
                 time.sleep(0.25)
                 keyboard.press_and_release("enter")
 
                 need_refresh = True
+                skip_debug  = True          # ← skip debug prints until next refresh
+
                 continue
 
             # 2) Speech-menu three-step sequence
@@ -155,14 +219,14 @@ def limbus_bot():
                 # Step 1: click Speech Menu
                 # (this is the Hamburger Menu found in dialogues)
                 click(pt, "Speech Menu → click", hold_ms=10)
-                time.sleep(0.1)
+                time.sleep(CHECK_INTERVAL)
                 screen_gray = refresh_screen()
 
                 # Step 2: click Fast Forward (if present)
                 # (this is the Fast Forward button in dialogues)
                 if (ff := best_match(screen_gray, TEMPLATES["fast_forward"])):
                     click(ff, "Fast Forward → click", hold_ms=10)
-                    time.sleep(0.1)
+                    time.sleep(CHECK_INTERVAL)
                     screen_gray = refresh_screen()
 
                 # Step 3: only click Confirm if “Choice Check” is NOT present
@@ -170,68 +234,70 @@ def limbus_bot():
                 if not best_match(screen_gray, TEMPLATES["choice_needed"]):
                     if (cf := best_match(screen_gray, TEMPLATES["confirm"])):
                         click(cf, "Confirm → click", hold_ms=10)
-                        time.sleep(0.1)
+                        time.sleep(CHECK_INTERVAL)
 
                 need_refresh = True
+                skip_debug  = True          # ← skip debug prints until next refresh
+
                 continue
 
-            # 3) Choice Needed – bail early
-            # (this is a Mirror Dungeon check to prevent skipping
-            #  encounter rewards)
-            if best_match(screen_gray, TEMPLATES["choice_needed"]):
+            # 3) Overlays & Confirm  ─ unified logic
+            choice_overlay   = best_match(screen_gray, TEMPLATES["choice_needed"])
+            fusion_overlay   = best_match(screen_gray, TEMPLATES["fusion_check"])
+            ego_overlay      = best_match(screen_gray, TEMPLATES["ego_check"])
+            ego_get_overlay  = best_match(screen_gray, TEMPLATES["ego_get"])
+            ego_block        = ego_overlay and not ego_get_overlay   # block only when Get is absent
+
+            # ── Bail-early overlays ──────────────────────────────────────────────
+            if choice_overlay:
                 print("Choice Needed – waiting…")
                 need_refresh = True
+                skip_debug  = True          # ← skip debug prints until next refresh
+
                 continue
 
-            # 4) EGO Gift Purchase/Enhance - bail early
-            # (this is a Mirror Dungeon check to prevent spending
-            #  cost on every E.G.O gift you click)
-            if best_match(screen_gray, TEMPLATES["ego_check"]):
+            elif ego_block:
                 print("EGO Gift Check – waiting…")
                 need_refresh = True
+                skip_debug  = True          # ← skip debug prints until next refresh
+
                 continue
 
-            # 5) Fusion Check - bail early
-            # (this is a Mirror Dungeon check to prevent automatically
-            #  exiting the Fusion Keyword select menu)
-            if best_match(screen_gray, TEMPLATES["fusion_check"]):
+            elif fusion_overlay:
                 print("Fusion Check – waiting…")
                 need_refresh = True
+                skip_debug  = True          # ← skip debug prints until next refresh
+
                 continue
 
-            # 6) Confirm (black or white)
-            # (Mirror Dungeon & Victory screens use black; dialogs use white)
-            blocking = any(
-                best_match(screen_gray, TEMPLATES[k])
-                for k in ("choice_needed", "fusion_check", "ego_check")
-            )
+            # ── Confirm (no blocking overlays, no undesired EGO-Continue scenario) ──
+            black = best_match(screen_gray, TEMPLATES["black_confirm"])
+            white = best_match(screen_gray, TEMPLATES["confirm"])
+            if black or white:
+                print("Confirm – running…")
+                click(black or white, "Confirm → click", hold_ms=10)
+                time.sleep(CHECK_INTERVAL)
+                need_refresh = True
+                skip_debug  = True          # ← skip debug prints until next refresh
 
-            if not blocking:
-                black = best_match(screen_gray, TEMPLATES["black_confirm"])
-                white = best_match(screen_gray, TEMPLATES["confirm"])
+                continue
 
-                if black or white:
-                    print("Confirm – running…")
-                    click(black or white, "Confirm → click", hold_ms=10)
-                    time.sleep(0.1)
-                    need_refresh = True
-                    continue
-
-            # 7) Skip button
+            # 4) Skip button
             # (this is the Skip button in the Abnormality Event)
-            abno_skip_print = False
             if (pt := best_match(screen_gray, TEMPLATES["skip"])):
                 print("Skip Abno. Dialogue – running…")
-                abno_skip_print = True
                 click(pt, "Skip → click", hold_ms=10)
-                time.sleep(0.25)
+                time.sleep(0.2)
                 screen_gray = refresh_screen()
 
                 # If Continue is present, click that too
                 # (this is the “Continue” button in the Abnormality Event)
+                # clicks twice to auto advance the dialogue
                 if (pt := best_match(screen_gray, TEMPLATES["continue"])):
                     click(pt, "Continue → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(CHECK_INTERVAL)
+                    click(pt, "Continue → click", hold_ms=10)
+                    time.sleep(CHECK_INTERVAL)
                     screen_gray = refresh_screen()
 
                 # If Very High is present, click that too
@@ -247,51 +313,69 @@ def limbus_bot():
                 # clicks twice to auto advance the dialogue
                 if (pt := best_match(screen_gray, TEMPLATES["proceed"])):
                     click(pt, "Proceed → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.2)
+                    click()
+                    time.sleep(CHECK_INTERVAL)
                     screen_gray = refresh_screen()
 
                 # If Commence is present, click that too
                 # (this is the Commence button in the Abnormality Event)
                 if (pt := best_match(screen_gray, TEMPLATES["commence"])):
                     click(pt, "Commence → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(CHECK_INTERVAL)
                     screen_gray = refresh_screen()
 
                 # If Commence Battle is present, click that too
                 # (this is the Commence Battle button in the Abnormality Event)
                 if (pt := best_match(screen_gray, TEMPLATES["commence_battle"])):
                     click(pt, "Commence Battle → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(CHECK_INTERVAL)
                     screen_gray = refresh_screen()
 
                 need_refresh = True
-                continue
-            abno_skip_print = False
+                skip_debug  = True          # ← skip debug prints until next refresh
 
-            # 8) To Battle
+                continue
+
+            # 5) To Battle
             # (this is the To Battle button in the party select screen)
             if (pt := best_match(screen_gray, TEMPLATES["battle"])):
                 click(pt, "To Battle → click")
-                time.sleep(0.1)
+                time.sleep(CHECK_INTERVAL)
                 need_refresh = True
+                skip_debug  = True          # ← skip debug prints until next refresh
+
                 continue
 
-            # 9) Enter
+            # 6) Enter
             # (this is the Enter button in the encounter select screen)
             if (pt := best_match(screen_gray, TEMPLATES["enter"])):
                 click(pt, "Enter → click")
-                time.sleep(0.1)
+                time.sleep(CHECK_INTERVAL)
                 need_refresh = True
+                skip_debug  = True          # ← skip debug prints until next refresh
+
                 continue
 
-        time.sleep(0.05)     # idle back-off (≈ 20 FPS)
+        time.sleep(CHECK_INTERVAL)     # idle back-off to prevent CPU hogging
+
+        # ───────── extra newline after each full debug pass ─────────
+        if printed_this_loop:          # print exactly one blank line
+            print()
+            printed_this_loop = False  # ← reset so we don’t print again next loop
 
 # ──────────────────────── Supervisor / hotkey wrapper ──────────────────
 def main():
-    # Register global hotkey once
+    # Register global hotkeys once
+    # Pause / resume the bot with Ctrl+Shift+D
     keyboard.add_hotkey('ctrl+shift+d',
                         lambda: exit_event.set(),
                         suppress=True, trigger_on_release=True)
+
+    # HARD BREAK  → Ctrl + Alt + D
+    keyboard.add_hotkey('ctrl+alt+d',
+                        lambda: os._exit(0),       # exits immediately, no clean-up
+                        suppress=True, trigger_on_release=False)   # fire on key-down
 
     print("Limbus bot ready.")
     
