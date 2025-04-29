@@ -32,22 +32,23 @@ Tmpl = namedtuple("Tmpl", "img thresh roi")    # roi == (x, y, w, h) or None
 
 TEMPLATE_SPEC = {
     # name               (filename,                threshold,  roi)
-    "winrate"       : ("winrate.png",               0.82,      None),
-    "speech_menu"   : ("Speech Menu.png",           0.75,      None),
-    "fast_forward"  : ("Fast Forward.png",          0.75,      None),
-    "confirm"       : ("Confirm.png",               0.90,      None),
-    "black_confirm" : ("Black Confirm.png",         0.90,      None),
-    "battle"        : ("To Battle.png",             0.60,      None),
-    "skip"          : ("Skip.png",                  0.60,      None),
-    "enter"         : ("Enter.png",                 0.65,      None),
-    "choice_needed" : ("Choice Check.png",          0.80,      None),
-    "fusion_check"  : ("Fusion Check.png",          0.80,      None),
-    "ego_check"     : ("EGO Check.png",             0.80,      None),
-    "commence"      : ("Battle Commence.png",       0.80,      None),
-    "proceed"       : ("Proceed.png",               0.80,      None),
-    "very_high"     : ("Very High.png",             0.80,      None),
-    "commence"      : ("Commence.png",              0.80,      None),
-    "continue"      : ("Continue.png",              0.80,      None),
+    "winrate"         : ("winrate.png",               0.82,      None),
+    "speech_menu"     : ("Speech Menu.png",           0.75,      None),
+    "fast_forward"    : ("Fast Forward.png",          0.75,      None),
+    "confirm"         : ("Confirm.png",               0.70,      None),
+    "black_confirm"   : ("Black Confirm.png",         0.70,      None),
+    "battle"          : ("To Battle.png",             0.70,      None),
+    "skip"            : ("Skip.png",                  0.70,      None),
+    "enter"           : ("Enter.png",                 0.65,      None),
+    "choice_needed"   : ("Choice Check.png",          0.70,      None),
+    "fusion_check"    : ("Fusion Check.png",          0.70,      None),
+    "ego_check"       : ("EGO Check.png",             0.70,      None),
+    "commence"        : ("Battle Commence.png",       0.80,      None),
+    "proceed"         : ("Proceed.png",               0.80,      None),
+    "very_high"       : ("Very High.png",             0.80,      None),
+    "commence"        : ("Commence.png",              0.80,      None),
+    "commence_battle" : ("Commence Battle.png",       0.80,      None),
+    "continue"        : ("Continue.png",              0.80,      None),
 }
 
 # ────────────────────────────  Helpers  ────────────────────────────────
@@ -131,6 +132,7 @@ def limbus_bot():
 
             # 1) Win-rate check
             if (pt := best_match(screen_gray, TEMPLATES["winrate"])):
+                print("Auto-Battle (WinRate) – running…")
                 # Move pointer to a clear spot: centre-x, 10 % down
                 # (this is to skip boss encounter text that appears
                 #  in certain fights, especially in Mirror Dungeons,
@@ -149,6 +151,7 @@ def limbus_bot():
 
             # 2) Speech-menu three-step sequence
             if (pt := best_match(screen_gray, TEMPLATES["speech_menu"])):
+                print("Dialogue Skip – running…")
                 # Step 1: click Speech Menu
                 # (this is the Hamburger Menu found in dialogues)
                 click(pt, "Speech Menu → click", hold_ms=10)
@@ -196,20 +199,30 @@ def limbus_bot():
                 need_refresh = True
                 continue
 
-            # 4) Confirm (black or white)
-            # (this is the Confirm button in Mirror Dungeon [black] and
-            #  other menus [white])
-            black = best_match(screen_gray, TEMPLATES["black_confirm"])
-            white = best_match(screen_gray, TEMPLATES["confirm"])
-            if black or white:
-                click(black or white, "Confirm → click", hold_ms=10)
-                time.sleep(0.1)
-                need_refresh = True
-                continue
+            # 6) Confirm (black or white)
+            # (Mirror Dungeon & Victory screens use black; dialogs use white)
+            blocking = any(
+                best_match(screen_gray, TEMPLATES[k])
+                for k in ("choice_needed", "fusion_check", "ego_check")
+            )
 
-            # 5) Skip button
+            if not blocking:
+                black = best_match(screen_gray, TEMPLATES["black_confirm"])
+                white = best_match(screen_gray, TEMPLATES["confirm"])
+
+                if black or white:
+                    print("Confirm – running…")
+                    click(black or white, "Confirm → click", hold_ms=10)
+                    time.sleep(0.1)
+                    need_refresh = True
+                    continue
+
+            # 7) Skip button
             # (this is the Skip button in the Abnormality Event)
+            abno_skip_print = False
             if (pt := best_match(screen_gray, TEMPLATES["skip"])):
+                print("Skip Abno. Dialogue – running…")
+                abno_skip_print = True
                 click(pt, "Skip → click", hold_ms=10)
                 time.sleep(0.25)
                 screen_gray = refresh_screen()
@@ -244,10 +257,18 @@ def limbus_bot():
                     time.sleep(0.25)
                     screen_gray = refresh_screen()
 
+                # If Commence Battle is present, click that too
+                # (this is the Commence Battle button in the Abnormality Event)
+                if (pt := best_match(screen_gray, TEMPLATES["commence_battle"])):
+                    click(pt, "Commence Battle → click", hold_ms=10)
+                    time.sleep(0.25)
+                    screen_gray = refresh_screen()
+
                 need_refresh = True
                 continue
+            abno_skip_print = False
 
-            # 6) To Battle
+            # 8) To Battle
             # (this is the To Battle button in the party select screen)
             if (pt := best_match(screen_gray, TEMPLATES["battle"])):
                 click(pt, "To Battle → click")
@@ -255,7 +276,7 @@ def limbus_bot():
                 need_refresh = True
                 continue
 
-            # 7) Enter
+            # 9) Enter
             # (this is the Enter button in the encounter select screen)
             if (pt := best_match(screen_gray, TEMPLATES["enter"])):
                 click(pt, "Enter → click")
