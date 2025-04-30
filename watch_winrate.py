@@ -8,16 +8,32 @@ top-left corner (PyAutoGUI failsafe).
 Dependencies: opencv-python, numpy, pyautogui, keyboard, pygetwindow
 """
 
-import os
-import threading
-import time
+# ── std-lib imports ───────────────────────────────────────────────────
+import os, threading, time
 from collections import namedtuple
 
-import cv2
-import numpy as np
-import pyautogui
-import keyboard
-import pygetwindow as gw
+# ── auto-installer for third-party packages ───────────────────────────
+def _require(pkg, import_as=None, pypi_name=None):
+    """
+    Import *pkg*.  If missing, install from PyPI then import.
+      pypi_name lets you map  import cv2  <-  pip install opencv-python
+    """
+    import importlib, subprocess, sys
+    try:
+        return importlib.import_module(pkg if import_as is None else import_as)
+    except ModuleNotFoundError:
+        name = pypi_name or pkg
+        print(f"[setup] installing '{name}' …")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", name])
+        return importlib.import_module(pkg if import_as is None else import_as)
+
+# third-party modules
+cv2        = _require("cv2",        pypi_name="opencv-python")
+np         = _require("numpy")
+pyautogui  = _require("pyautogui")
+keyboard   = _require("keyboard")
+gw         = _require("pygetwindow")
+mss        = _require("mss")
 
 # ───────────────────────── Runtime safety ──────────────────────────────
 pyautogui.FAILSAFE = True
@@ -185,8 +201,6 @@ def click(pt, label=None, hold_ms=0):
     pyautogui.mouseUp()
 
 # ── fast screenshot with mss (≈3 ms) ───────────────────────────────────
-import mss                         # already imported earlier
-
 grabber  = mss.mss()
 monitor   = grabber.monitors[1]    # primary capture
 MON_X, MON_Y = monitor["left"], monitor["top"]
