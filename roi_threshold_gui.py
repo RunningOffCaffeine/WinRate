@@ -25,7 +25,9 @@ class Tuner(tk.Tk):
         live_spec, orig_spec, update_cb, pause_event,
         initial_delay_ms, initial_is_HDR,
         initial_debug, delay_cb, hdr_cb, debug_cb,
-        debug_vals_fn, debug_pass_fn, default_spec 
+        debug_vals_fn, debug_pass_fn, default_spec,
+        lux_thread, lux_EXP, mirror_full_auto, 
+        lux_thread_cb, lux_EXP_cb, mirror_full_auto_cb
     ):
         super().__init__(className="Limbus tuner")
         self.title("Limbus tuner")
@@ -46,6 +48,12 @@ class Tuner(tk.Tk):
         self.debug_vals_fn  = debug_vals_fn
         self.debug_pass_fn  = debug_pass_fn
         self.default_spec = default_spec
+        self.lux_thread_cb = lux_thread_cb
+        self.lux_EXP_cb = lux_EXP_cb
+        self.mirror_full_auto_cb = mirror_full_auto_cb
+        self.lux_thread = lux_thread
+        self.lux_EXP = lux_EXP
+        self.mirror_full_auto = mirror_full_auto
 
         # ─── state vars ─────────────────────────────────────
         self.spec        = live_spec
@@ -54,6 +62,9 @@ class Tuner(tk.Tk):
         self.var_delay   = tk.IntVar(value=initial_delay_ms)
         self.var_hdr     = tk.BooleanVar(value=initial_is_HDR)
         self.var_debug   = tk.BooleanVar(value=initial_debug)
+        self.var_lux_thread = tk.BooleanVar(value=self.lux_thread)
+        self.var_lux_EXP = tk.BooleanVar(value=self.lux_EXP)
+        self.var_mirror_full_auto = tk.BooleanVar(value=self.mirror_full_auto)
         self.DEBUG_PANEL  = None
 
         # ─── top layout ─────────────────────────────────────
@@ -70,11 +81,41 @@ class Tuner(tk.Tk):
         ttk.Button(df, text="Apply", command=self._apply_delay).pack(side="left")
 
         # ── HDR / Debug toggles ───────────────────────────────────────
-        ttk.Checkbutton(controls, text="HDR mode",
-                        variable=self.var_hdr, command=self._toggle_hdr).pack(anchor="w")
-        ttk.Checkbutton(controls, text="Debug mode",
-                        variable=self.var_debug, command=self._toggle_debug).pack(anchor="w", pady=(0,4))
+        # put all of our toggles into a little grid frame:
+        chk_frame = ttk.Frame(controls)
+        chk_frame.pack(fill="x", pady=4)
 
+        # column 0
+        ttk.Checkbutton(chk_frame,
+                        text="HDR mode",
+                        variable=self.var_hdr,
+                        command=self._toggle_hdr
+                    ).grid(row=0, column=0, sticky="w", padx=2, pady=2)
+        
+        ttk.Checkbutton(chk_frame,
+                        text="Debug mode",
+                        variable=self.var_debug,
+                        command=self._toggle_debug
+                    ).grid(row=1, column=0, sticky="w", padx=2, pady=2)
+
+        # column 1
+        ttk.Checkbutton(chk_frame,
+                        text="Mirror Full Auto",
+                        variable=self.var_mirror_full_auto,
+                        command=self._toggle_mirror_full_auto
+                    ).grid(row=0, column=1, sticky="w", padx=20, pady=2)
+
+        ttk.Checkbutton(chk_frame,
+                        text="Thread Luxcavation",
+                        variable=self.var_lux_thread,
+                        command=self._toggle_thread_lux
+                    ).grid(row=1, column=1, sticky="w", padx=20, pady=2)
+        
+        ttk.Checkbutton(chk_frame,
+                        text="EXP Luxcavation",
+                        variable=self.var_lux_EXP,
+                        command=self._toggle_exp_lux
+                    ).grid(row=2, column=1, sticky="w", padx=20, pady=2)
 
         # ── template selector ─────────────────────────────────────────
         self.var_name = tk.StringVar(value=next(iter(self.spec)))
@@ -89,8 +130,11 @@ class Tuner(tk.Tk):
         self.scale   = ttk.Scale(sf, from_=0.1, to=1.0,
                                  variable=self.var_thr, command=self._set_thr)
         self.scale.pack(side="left", fill="x", expand=True)
-        self.var_thr_label = tk.StringVar(value=f"{initial_thr:.3f}")
-        ttk.Label(sf, textvariable=self.var_thr_label, width=6).pack(side="left", padx=4)
+        self.var_thr_entry = tk.StringVar(value=f"{initial_thr:.3f}")
+        entry = ttk.Entry(sf, width=6, textvariable=self.var_thr_entry)
+        entry.pack(side="left", padx=4)
+        # when the user types and presses Enter, call our handler:
+        entry.bind("<Return>", self._on_thr_entry)
         self.img_label = tk.Label(sf)
         self.img_label.pack(side="right", padx=4)
         ttk.Label(self, text="threshold").pack()
@@ -169,10 +213,22 @@ class Tuner(tk.Tk):
             # shrink back
             self.geometry(f"{self.base_width}x{self.winfo_height()}")
 
+    def _toggle_thread_lux(self):
+        self.lux_thread = self.var_lux_thread.get()
+        self.lux_thread_cb(self.lux_thread)
+
+    def _toggle_exp_lux(self):
+        self.lux_EXP = self.var_lux_EXP.get()
+        self.lux_EXP_cb(self.lux_EXP)
+    
+    def _toggle_mirror_full_auto(self):
+        self.mirror_full_auto = self.var_mirror_full_auto.get()
+        self.mirror_full_auto_cb(self.mirror_full_auto)
+
     def _load_data(self, *_):
         base, thr, roi = self.spec[self.var_name.get()]
         self.var_thr.set(thr)
-        self.var_thr_label.set(f"{thr:.3f}")
+        self.var_thr_entry.set(f"{thr:.3f}")
         self.lab_roi.config(text=f"ROI : {roi}")
 
         # update image preview
@@ -207,12 +263,50 @@ class Tuner(tk.Tk):
                 print(f"[Tuner] no img_label to show preview for {base!r}")
 
     def _set_thr(self, *_):
+        """
+        Called when the slider moves.
+        Update the spec and also sync the entry box.
+        """
         name = self.var_name.get()
         base, _, roi = self.spec[name]
+
+        # round to 3 decimals
         val = round(self.var_thr.get(), 3)
         self.spec[name] = (base, val, roi)
-        self.var_thr_label.set(f"{val:.3f}")
+
+        # sync the entry to show the new value
+        self.var_thr_entry.set(f"{val:.3f}")
+
+        # notify bot to reload thresholds if needed
         self.update_cb()
+
+    def _on_thr_entry(self, event):
+        """
+        Called when the user types a number and hits Enter.
+        Validate, clamp between 0.1 and 1.0, then update slider & spec.
+        """
+        name = self.var_name.get()
+        base, _, roi = self.spec[name]
+
+        try:
+            # try to parse what they typed
+            val = float(self.var_thr_entry.get())
+        except ValueError:
+            # if invalid, restore the entry to the current slider value
+            current = round(self.var_thr.get(), 3)
+            self.var_thr_entry.set(f"{current:.3f}")
+            return
+
+        # clamp to the slider’s range
+        val = max(0.1, min(1.0, val))
+
+        # update both slider and spec
+        self.var_thr.set(val)
+        self.spec[name] = (base, val, roi)
+        self.update_cb()
+
+        # make sure the entry also shows the clamped/rounded value
+        self.var_thr_entry.set(f"{val:.3f}")
 
     def _reset_thr(self):
         name = self.var_name.get()
@@ -221,7 +315,7 @@ class Tuner(tk.Tk):
         _, _, roi = self.spec[name]
         self.spec[name] = (base, orig_thr, roi)
         self.var_thr.set(orig_thr)
-        self.var_thr_label.set(f"{orig_thr:.3f}")
+        self.var_thr_entry.set(f"{orig_thr:.3f}")
         self.update_cb()
 
     def _reset_roi(self):
@@ -242,6 +336,7 @@ class Tuner(tk.Tk):
         cfg = {}
         for name, (base, thresh, roi) in self.spec.items():
             cfg[name] = {
+                "base":     base,
                 "threshold": round(thresh, 4),
                 "roi":      list(roi) if roi is not None else None
             }
@@ -351,13 +446,19 @@ def launch_gui(
     pause_event,
     initial_delay_ms,
     initial_is_HDR,
+    initial_debug,
     delay_cb,               # fn: int -> None
     hdr_cb,                 # fn: bool -> None
-    initial_debug,          # bool
     debug_cb,               # fn: bool -> None
     debug_vals_fn,          # fn: None -> dict[name,score]
     debug_pass_fn,          # fn: None -> dict[name,score]
-    default_spec
+    default_spec,           # your `DEFAULT_TEMPLATE_SPEC`
+    initial_lux_thread,     # bool
+    initial_lux_EXP,        # bool
+    initial_mirror_full_auto,   # bool
+    lux_thread_cb,          # fn: bool -> None
+    lux_EXP_cb,             # fn: bool -> None
+    mirror_full_auto_cb     # fn: bool -> None
 ):
     import copy, threading
     orig = copy.deepcopy(template_spec)
@@ -375,6 +476,12 @@ def launch_gui(
             debug_cb,
             debug_vals_fn,
             debug_pass_fn,
-            default_spec
+            default_spec,
+            initial_lux_thread,
+            initial_lux_EXP,
+            initial_mirror_full_auto,
+            lux_thread_cb,
+            lux_EXP_cb,
+            mirror_full_auto_cb
         ).mainloop()
     threading.Thread(target=_run, daemon=True).start()

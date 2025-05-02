@@ -88,6 +88,9 @@ pause_event = threading.Event()
 delay_ms = 50
 is_HDR = False
 debug_flag = False
+lux_thread = False
+lux_EXP = False
+full_auto_mirror = False
 
 # ── INITIALIZE SLEEP INTERVAL & LAST GRAB ─────────────────────────
 CHECK_INTERVAL = delay_ms / 1000.0
@@ -115,6 +118,24 @@ def set_debug_mode(debug_mode: bool):
     print(f"Debug mode {'enabled' if DEBUG_MATCH else 'disabled'}.")
     _refresh_templates() # reload templates
 
+def set_lux_thread(lux_thr: bool):
+    global lux_thread
+    lux_thread = lux_thr
+    print(f"Lux thread {'enabled' if lux_thread else 'disabled'}.")
+    _refresh_templates() # reload templates
+
+def set_lux_exp(lux_exp: bool):
+    global lux_EXP
+    lux_EXP = lux_exp
+    print(f"Lux exp {'enabled' if lux_EXP else 'disabled'}.")
+    _refresh_templates() # reload templates
+
+def set_full_auto_mirror(full_auto: bool):
+    global full_auto_mirror
+    full_auto_mirror = full_auto
+    print(f"Full auto mirror {'enabled' if full_auto else 'disabled'}.")
+    _refresh_templates() # reload templates
+
 skip_debug = False
 printed_this_loop = False
 
@@ -123,21 +144,21 @@ Tmpl = namedtuple("Tmpl", "img mask thresh roi")    # roi == (x, y, w, h) or Non
 
 # name                : (basename-no-suffix,  threshold,        roi)
 TEMPLATE_SPEC = {
-    "winrate"         : ("winrate",                0.82,        (0.50, 0.70, 0.50, 0.30)),
-    "speech_menu"     : ("Speech Menu",            0.75,        (0.50, 0.00, 1.00, 0.20)),
-    "fast_forward"    : ("Fast Forward",           0.75,        (0.50, 0.00, 1.00, 0.20)),
-    "confirm"         : ("Confirm",                0.80,        (0.44, 0.60, 0.12, 0.12)),
+    "winrate"         : ("winrate",                0.75,        (0.50, 0.70, 0.50, 0.30)),
+    "speech_menu"     : ("Speech Menu",            0.75,        (0.50, 0.00, 0.50, 0.30)),
+    "fast_forward"    : ("Fast Forward",           0.75,        (0.45, 0.00, 0.35, 0.20)),
+    "confirm"         : ("Confirm",                0.80,        (0.35, 0.55, 0.35, 0.25)),
     "black_confirm"   : ("Black Confirm",          0.80,        (0.36, 0.67, 0.26, 0.12)),
     "battle"          : ("To Battle",              0.70,        (0.50, 0.50, 0.50, 0.50)),
-    "chain_battle"    : ("Battle Chain",           0.70,        (0.50, 0.50, 0.50, 0.50)),
-    "skip"            : ("Skip",                   0.70,        (0.00, 0.30, 0.50, 0.40)),
-    "enter"           : ("Enter",                  0.75,        (0.50, 0.60, 0.50, 0.40)),
-    "choice_needed"   : ("Choice Check",           0.70,        None                    ),
-    "fusion_check"    : ("Fusion Check",           0.70,        (0.00, 0.00, 1.00, 0.40)),
-    "ego_check"       : ("EGO Check",              0.80,        (0.00, 0.00, 1.00, 0.40)),
-    "ego_get"         : ("EGO Get",                0.80,        (0.00, 0.00, 1.00, 0.40)),
+    "chain_battle"    : ("Battle Chain",           0.82,        (0.50, 0.50, 0.50, 0.50)),
+    "skip"            : ("Skip",                   0.80,        (0.00, 0.30, 0.50, 0.40)),
+    "enter"           : ("Enter",                  0.80,        (0.50, 0.60, 0.50, 0.40)),
+    "choice_needed"   : ("Choice Check",           0.70,        (0.45, 0.20, 0.45, 0.15)),
+    "fusion_check"    : ("Fusion Check",           0.70,        (0.20, 0.00, 0.60, 0.30)),
+    "ego_check"       : ("EGO Check",              0.80,        (0.33, 0.22, 0.33, 0.10)),
+    "ego_get"         : ("EGO Get",                0.80,        (0.33, 0.22, 0.33, 0.10)),
     "proceed"         : ("Proceed",                0.80,        (0.50, 0.70, 0.50, 0.30)),
-    "very_high"       : ("Very High",              0.80,        (0.00, 0.70, 1.00, 0.30)),
+    "very_high"       : ("Very High",              0.85,        (0.00, 0.70, 1.00, 0.30)),
     "commence"        : ("Commence",               0.80,        (0.50, 0.70, 0.50, 0.30)),
     "commence_battle" : ("Commence Battle",        0.80,        (0.50, 0.70, 0.50, 0.30)),
     "continue"        : ("Continue",               0.80,        (0.50, 0.70, 0.50, 0.30)),
@@ -291,15 +312,21 @@ launch_gui(
     TEMPLATE_SPEC,
     _refresh_templates,
     pause_event,
-    initial_delay_ms=delay_ms,
-    initial_is_HDR=is_HDR,
-    initial_debug=debug_flag,
-    delay_cb=set_delay_ms,
-    hdr_cb=set_is_HDR,
-    debug_cb=set_debug_mode,
-    debug_vals_fn=lambda: last_vals,
-    debug_pass_fn=lambda: last_pass,
-    default_spec=DEFAULT_TEMPLATE_SPEC
+    delay_ms,            # initial_delay_ms
+    is_HDR,              # initial_is_HDR
+    debug_flag,          # initial_debug
+    set_delay_ms,        # delay_cb
+    set_is_HDR,          # hdr_cb
+    set_debug_mode,      # debug_cb
+    lambda: last_vals,   # debug_vals_fn
+    lambda: last_pass,   # debug_pass_fn
+    DEFAULT_TEMPLATE_SPEC,  # default_spec
+    lux_thread,          # initial_lux_thread
+    lux_EXP,             # initial_lux_EXP
+    full_auto_mirror,    # initial_mirror_full_auto
+    set_lux_thread,      # lux_thread_cb
+    set_lux_exp,         # lux_EXP_cb
+    set_full_auto_mirror # mirror_full_auto_cb
 )
 
 
@@ -330,6 +357,14 @@ def limbus_bot():
                 need_refresh = False
                 skip_debug  = False          # ← allow debug prints again
                 printed_this_loop = False    # ← reset printed flag
+
+            if lux_thread:
+                #later
+                continue
+
+            if lux_EXP:
+                #later
+                continue
 
             # 1) Win-rate check
             if (pt := best_match(screen_gray, TEMPLATES["winrate"])):
@@ -411,21 +446,23 @@ def limbus_bot():
 
             elif ego_get_overlay:
                 print("EGO Gift Recieved - running...")
-                # Move pointer to a clear spot: centre-x, 80% down
-                h, w = screen_gray.shape
-                pyautogui.moveTo(w // 2, int(h * 0.75))
-                pyautogui.click()
-                time.sleep(0.1)
+                # # Move pointer to a clear spot: centre-x, 80% down
+                # h, w = screen_gray.shape
+                # pyautogui.moveTo(w // 2, int(h * 0.75))
+                # pyautogui.click()
+                keyboard.press_and_release("enter")
+                time.sleep(CHECK_INTERVAL)
 
                 continue
 
             elif choice_skip:
                 print("EGO Gift Recieved - running...")
-                # Move pointer to a clear spot: centre-x, 80% down
-                h, w = screen_gray.shape
-                pyautogui.moveTo(w // 2, int(h * 0.75))
-                pyautogui.click()
-                time.sleep(0.1)
+                # # Move pointer to a clear spot: centre-x, 80% down
+                # h, w = screen_gray.shape
+                # pyautogui.moveTo(w // 2, int(h * 0.75))
+                # pyautogui.click()
+                keyboard.press_and_release("enter")
+                time.sleep(CHECK_INTERVAL)
 
                 continue
 
@@ -446,6 +483,8 @@ def limbus_bot():
             if (pt := best_match(screen_gray, TEMPLATES["skip"])):
                 print("Skip Abno. Dialogue – running…")
                 click(pt, "Skip → click", hold_ms=10)
+                h, w = screen_gray.shape
+                pyautogui.moveTo(w // 2, int(h * 0.10)) # move away to avoid hiding skip button
                 time.sleep(0.2)
                 screen_gray = refresh_screen()
 
@@ -526,6 +565,11 @@ def limbus_bot():
                 need_refresh = True
                 skip_debug  = True          # ← skip debug prints until next refresh
 
+                continue
+
+            # 7) Full Auto Mirror Dungeon
+            if full_auto_mirror:
+                # later
                 continue
 
         time.sleep(CHECK_INTERVAL)     # idle back-off to prevent CPU hogging
