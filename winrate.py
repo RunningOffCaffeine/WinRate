@@ -128,10 +128,11 @@ TEMPLATE_SPEC = {
     "fast_forward"    : ("Fast Forward",           0.75,        (0.50, 0.00, 1.00, 0.20)),
     "confirm"         : ("Confirm",                0.80,        (0.44, 0.60, 0.12, 0.12)),
     "black_confirm"   : ("Black Confirm",          0.80,        (0.36, 0.67, 0.26, 0.12)),
-    "battle"          : ("To Battle",              0.70,        (0.50, 0.80, 0.50, 0.20)),
+    "battle"          : ("To Battle",              0.70,        (0.50, 0.50, 0.50, 0.50)),
+    "chain_battle"    : ("Battle Chain",           0.70,        (0.50, 0.50, 0.50, 0.50)),
     "skip"            : ("Skip",                   0.70,        (0.00, 0.30, 0.50, 0.40)),
     "enter"           : ("Enter",                  0.75,        (0.50, 0.60, 0.50, 0.40)),
-    "choice_needed"   : ("Choice Check",           0.70,        None),
+    "choice_needed"   : ("Choice Check",           0.70,        None                    ),
     "fusion_check"    : ("Fusion Check",           0.70,        (0.00, 0.00, 1.00, 0.40)),
     "ego_check"       : ("EGO Check",              0.80,        (0.00, 0.00, 1.00, 0.40)),
     "ego_get"         : ("EGO Get",                0.80,        (0.00, 0.00, 1.00, 0.40)),
@@ -195,49 +196,49 @@ def active_window_title() -> str:
         return ""
 
 def best_match(screen_gray: np.ndarray, tmpl: Tmpl, *, label: str = ""):
-    global printed_this_loop, last_vals, last_pass
+    global last_vals, last_pass
 
-    # 1) Extract region (same as before) …
+    # unpack roi (could be None or a 4‐tuple)
     if tmpl.roi:
-        x,y,w,h = tmpl.roi
-        if any(isinstance(v, float) and v<=1 for v in (x,y,w,h)):
-            H,W = screen_gray.shape
-            x,y,w,h = int(x*W), int(y*H), int(w*W), int(h*H)
+        x, y, w, h = tmpl.roi
+        H, W = screen_gray.shape
+        # if fractional, convert to pixels
+        if any(isinstance(v, float) and v <= 1.0 for v in (x, y, w, h)):
+            x, y, w, h = int(x*W), int(y*H), int(w*W), int(h*H)
         region = screen_gray[y:y+h, x:x+w]
     else:
-        x=y=0
-        region=screen_gray
+        region = screen_gray
+        x = y = 0
 
-    # 2) Skip if template bigger than region
-    rh,rw = region.shape
-    th,tw = tmpl.img.shape
+    rh, rw = region.shape
+    th, tw = tmpl.img.shape
+
+    # if the region is too small, skip
+    key = label or next(k for k,v in TEMPLATES.items() if v is tmpl)
     if rh < th or rw < tw:
-        last_vals[label or next(k for k,v in TEMPLATES.items() if v is tmpl)] = 0.0
+        last_vals[key] = 0.0
         return None
 
-    # 3) Equalize both region and template to boost contrast
-    region_eq = cv2.equalizeHist(region)
-    template_eq = tmpl.img
-    # if you kept a mask in your Tmpl, you can now do:
-    #   res = cv2.matchTemplate(region_eq, template_eq, cv2.TM_CCORR_NORMED, mask=tmpl.mask)
-    # otherwise just:
-    res = cv2.matchTemplate(region_eq, template_eq, cv2.TM_CCOEFF_NORMED)
+    # optional: histogram equalize for better contrast
+    region_eq   = cv2.equalizeHist(region)
+    template_eq = cv2.equalizeHist(tmpl.img)
 
+    # match
+    res = cv2.matchTemplate(region_eq, template_eq, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, max_loc = cv2.minMaxLoc(res)
 
-    # 4) record it immediately, so your GUI can read it
-    key = label or next(k for k,v in TEMPLATES.items() if v is tmpl)
+    # record raw score
     last_vals[key] = max_val
 
-    # 5) check against threshold
     if max_val < tmpl.thresh:
         return None
 
-    last_pass[key] = max_val    # ← record “last pass” here
+    # record last passing score
+    last_pass[key] = max_val
 
-    # 6) return absolute centre
-    cx = max_loc[0] + tw//2 + x
-    cy = max_loc[1] + th//2 + y
+    # return center‐of‐match in full‐screen coords
+    cx = x + max_loc[0] + tw//2
+    cy = y + max_loc[1] + th//2
     return (cx, cy)
 
 def click(pt, label=None, hold_ms=0):
@@ -266,9 +267,10 @@ scale_x = MON_W / LOG_W            # 1.00, 1.25, 1.50, 2.00 …
 scale_y = MON_H / LOG_H
 
 def refresh_screen() -> np.ndarray:
-    frame = grabber.grab(monitor)              # ≈3 ms
-    img   = np.asarray(frame)[:, :, :3]        # drop alpha
-    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # full‐sized grab, we’ll crop later per‐ROI
+    img = pyautogui.screenshot()              # PIL image
+    arr = np.asarray(img)                     # H×W×3 BGR
+    return cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
 
 def _refresh_templates():
     global TEMPLATES
@@ -504,8 +506,12 @@ def limbus_bot():
 
             # 5) To Battle
             # (this is the To Battle button in the party select screen)
-            if (pt := best_match(screen_gray, TEMPLATES["battle"])):
-                click(pt, "To Battle → click")
+            # (also checks for blue chain battle button)
+            battle = best_match(screen_gray, TEMPLATES["battle"])
+            chain  = best_match(screen_gray, TEMPLATES["chain_battle"])
+            if battle or chain:
+                print("To Battle – running…")
+                click(battle or chain, "To Battle → click", hold_ms=10)
                 time.sleep(CHECK_INTERVAL)
                 need_refresh = True
                 skip_debug  = True          # ← skip debug prints until next refresh
