@@ -193,7 +193,13 @@ class Tuner(tk.Tk):
         self.delay_cb(ms)
 
     def _toggle_hdr(self):
-        self.hdr_cb(self.var_hdr.get())
+        # pull the new state out of the checkbox
+        new_hdr = self.var_hdr.get()
+        # update our own copy
+        self.is_HDR = new_hdr
+        # notify the bot to reload its templates
+        self.hdr_cb(new_hdr)
+        # and redraw the thumbnail in the GUI
         self._load_data()
 
     def _toggle_debug(self):
@@ -214,16 +220,36 @@ class Tuner(tk.Tk):
             self.geometry(f"{self.base_width}x{self.winfo_height()}")
 
     def _toggle_thread_lux(self):
-        self.lux_thread = self.var_lux_thread.get()
-        self.lux_thread_cb(self.lux_thread)
+        sel = self.var_lux_thread.get()
+        if sel:
+            # uncheck the other two
+            self.var_lux_EXP.set(False)
+            self.var_mirror_full_auto.set(False)
+            # notify their callbacks
+            self.lux_EXP_cb(False)
+            self.mirror_full_auto_cb(False)
+        self.lux_thread = sel
+        self.lux_thread_cb(sel)
 
     def _toggle_exp_lux(self):
-        self.lux_EXP = self.var_lux_EXP.get()
-        self.lux_EXP_cb(self.lux_EXP)
-    
+        sel = self.var_lux_EXP.get()
+        if sel:
+            self.var_lux_thread.set(False)
+            self.var_mirror_full_auto.set(False)
+            self.lux_thread_cb(False)
+            self.mirror_full_auto_cb(False)
+        self.lux_EXP = sel
+        self.lux_EXP_cb(sel)
+
     def _toggle_mirror_full_auto(self):
-        self.mirror_full_auto = self.var_mirror_full_auto.get()
-        self.mirror_full_auto_cb(self.mirror_full_auto)
+        sel = self.var_mirror_full_auto.get()
+        if sel:
+            self.var_lux_thread.set(False)
+            self.var_lux_EXP.set(False)
+            self.lux_thread_cb(False)
+            self.lux_EXP_cb(False)
+        self.mirror_full_auto = sel
+        self.mirror_full_auto_cb(sel)
 
     def _load_data(self, *_):
         base, thr, roi = self.spec[self.var_name.get()]

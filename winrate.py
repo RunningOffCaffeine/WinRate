@@ -142,26 +142,55 @@ printed_this_loop = False
 # ───────────────────────── Template metadata ───────────────────────────
 Tmpl = namedtuple("Tmpl", "img mask thresh roi")    # roi == (x, y, w, h) or None
 
-# name                : (basename-no-suffix,  threshold,        roi)
+# name                      : (basename-no-suffix,     threshold,                            roi)
 TEMPLATE_SPEC = {
-    "winrate"         : ("winrate",                0.75,        (0.50, 0.70, 0.50, 0.30)),
-    "speech_menu"     : ("Speech Menu",            0.75,        (0.50, 0.00, 0.50, 0.30)),
-    "fast_forward"    : ("Fast Forward",           0.75,        (0.45, 0.00, 0.35, 0.20)),
-    "confirm"         : ("Confirm",                0.80,        (0.35, 0.55, 0.35, 0.25)),
-    "black_confirm"   : ("Black Confirm",          0.80,        (0.36, 0.67, 0.26, 0.12)),
-    "battle"          : ("To Battle",              0.70,        (0.50, 0.50, 0.50, 0.50)),
-    "chain_battle"    : ("Battle Chain",           0.82,        (0.50, 0.50, 0.50, 0.50)),
-    "skip"            : ("Skip",                   0.80,        (0.00, 0.30, 0.50, 0.40)),
-    "enter"           : ("Enter",                  0.80,        (0.50, 0.60, 0.50, 0.40)),
-    "choice_needed"   : ("Choice Check",           0.70,        (0.45, 0.20, 0.45, 0.15)),
-    "fusion_check"    : ("Fusion Check",           0.70,        (0.20, 0.00, 0.60, 0.30)),
-    "ego_check"       : ("EGO Check",              0.80,        (0.33, 0.22, 0.33, 0.10)),
-    "ego_get"         : ("EGO Get",                0.80,        (0.33, 0.22, 0.33, 0.10)),
-    "proceed"         : ("Proceed",                0.80,        (0.50, 0.70, 0.50, 0.30)),
-    "very_high"       : ("Very High",              0.85,        (0.00, 0.70, 1.00, 0.30)),
-    "commence"        : ("Commence",               0.80,        (0.50, 0.70, 0.50, 0.30)),
-    "commence_battle" : ("Commence Battle",        0.80,        (0.50, 0.70, 0.50, 0.30)),
-    "continue"        : ("Continue",               0.80,        (0.50, 0.70, 0.50, 0.30)),
+    "winrate"            : ("winrate",                     0.75,       (0.50, 0.70, 0.50, 0.30)),
+    "speech_menu"        : ("Speech Menu",                 0.75,       (0.50, 0.00, 0.50, 0.30)),
+    "fast_forward"       : ("Fast Forward",                0.75,       (0.45, 0.00, 0.35, 0.20)),
+    "confirm"            : ("Confirm",                     0.80,       (0.35, 0.55, 0.35, 0.25)),
+    "black_confirm"      : ("Black Confirm",               0.80,       (0.36, 0.67, 0.26, 0.12)),
+    "battle"             : ("To Battle",                   0.70,       (0.50, 0.50, 0.50, 0.50)),
+    "chain_battle"       : ("Battle Chain",                0.82,       (0.50, 0.50, 0.50, 0.50)),
+    "skip"               : ("Skip",                        0.80,       (0.00, 0.30, 0.50, 0.40)),
+    "enter"              : ("Enter",                       0.80,       (0.50, 0.60, 0.50, 0.40)),
+    "choice_needed"      : ("Choice Check",                0.70,       (0.45, 0.20, 0.45, 0.15)),
+    "fusion_check"       : ("Fusion Check",                0.70,       (0.20, 0.00, 0.60, 0.30)),
+    "ego_check"          : ("EGO Check",                   0.80,       (0.33, 0.22, 0.33, 0.10)),
+    "ego_get"            : ("EGO Get",                     0.80,       (0.33, 0.22, 0.33, 0.10)),
+    "proceed"            : ("Proceed",                     0.80,       (0.50, 0.70, 0.50, 0.30)),
+    "very_high"          : ("Very High",                   0.85,       (0.00, 0.70, 1.00, 0.30)),
+    "commence"           : ("Commence",                    0.80,       (0.50, 0.70, 0.50, 0.30)),
+    "commence_battle"    : ("Commence Battle",             0.80,       (0.50, 0.70, 0.50, 0.30)),
+    "continue"           : ("Continue",                    0.80,       (0.50, 0.70, 0.50, 0.30)),
+    # "reward"             : ("Reward",                      0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward"   : ("Encounter Reward",            0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "next_encounter"     : ("Encounter",                   0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "shop_skip"          : ("Skip Shop",                   0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "leave"              : ("Leave",                       0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "gift_reward_1"      : ("Gift Reward Rank 1",          0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "gift_reward_2"      : ("Gift Reward Rank 2",          0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "gift_reward_3"      : ("Gift Reward Rank 3",          0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "gift_reward_4"      : ("Gift Reward Rank 4",          0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_1" : ("Encounter Reward Rank 1",     0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_2" : ("Encounter Reward Rank 2",     0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_3" : ("Encounter Reward Rank 3",     0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_4" : ("Encounter Reward Rank 4",     0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_5" : ("Encounter Reward Rank 5",     0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_6" : ("Encounter Reward Rank 6",     0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_7" : ("Encounter Reward Rank 7",     0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_8" : ("Encounter Reward Rank 8",     0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_9" : ("Encounter Reward Rank 9",     0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "encounter_reward_10": ("Encounter Reward Rank 10",    0.80,       (0.50, 0.50, 0.50, 0.50)),
+    "mirror_dungeon"     : ("Mirror Dungeon",              0.80,       (0.50, 0.50, 0.50, 0.50)),
+    "mirror_enter"       : ("Mirror Enter",                0.80,       (0.50, 0.50, 0.50, 0.50)),
+    #other MD images
+    "luxcavations"       : ("Luxcavations",                0.80,       (0.50, 0.50, 0.50, 0.50)),
+    "select_exp_lux"     : ("Select EXP Lux",              0.80,       (0.50, 0.50, 0.50, 0.50)),
+    "select_thread_lux"  : ("Select Thread Lux",           0.80,       (0.50, 0.50, 0.50, 0.50)),
+    "lux_enter"          : ("Lux Enter",                   0.80,       (0.50, 0.50, 0.50, 0.50)),
+    "exp_lux_enter"      : ("EXP Lux Enter",               0.80,       (0.50, 0.50, 0.50, 0.50)),
+    "thread_lux_battle"  : ("Thread Lux Battle Select",    0.80,       (0.50, 0.50, 0.50, 0.50)),
+    "drive"              : ("Drive",                       0.80,       (0.50, 0.50, 0.50, 0.50)),
 }
 
 from copy import deepcopy
@@ -312,21 +341,21 @@ launch_gui(
     TEMPLATE_SPEC,
     _refresh_templates,
     pause_event,
-    delay_ms,            # initial_delay_ms
-    is_HDR,              # initial_is_HDR
-    debug_flag,          # initial_debug
-    set_delay_ms,        # delay_cb
-    set_is_HDR,          # hdr_cb
-    set_debug_mode,      # debug_cb
-    lambda: last_vals,   # debug_vals_fn
-    lambda: last_pass,   # debug_pass_fn
+    delay_ms,               # initial_delay_ms
+    is_HDR,                 # initial_is_HDR
+    debug_flag,             # initial_debug
+    set_delay_ms,           # delay_cb
+    set_is_HDR,             # hdr_cb
+    set_debug_mode,         # debug_cb
+    lambda: last_vals,      # debug_vals_fn
+    lambda: last_pass,      # debug_pass_fn
     DEFAULT_TEMPLATE_SPEC,  # default_spec
-    lux_thread,          # initial_lux_thread
-    lux_EXP,             # initial_lux_EXP
-    full_auto_mirror,    # initial_mirror_full_auto
-    set_lux_thread,      # lux_thread_cb
-    set_lux_exp,         # lux_EXP_cb
-    set_full_auto_mirror # mirror_full_auto_cb
+    lux_thread,             # initial_lux_thread
+    lux_EXP,                # initial_lux_EXP
+    full_auto_mirror,       # initial_mirror_full_auto
+    set_lux_thread,         # lux_thread_cb
+    set_lux_exp,            # lux_EXP_cb
+    set_full_auto_mirror    # mirror_full_auto_cb
 )
 
 
@@ -358,13 +387,123 @@ def limbus_bot():
                 skip_debug  = False          # ← allow debug prints again
                 printed_this_loop = False    # ← reset printed flag
 
+            # A) Thread Luxcavation automation
             if lux_thread:
-                #later
+                luxcavations = best_match(screen_gray, TEMPLATES["luxcavations"])
+                thr_lux = best_match(screen_gray, TEMPLATES["select_thread_lux"])
+                enter = best_match(screen_gray, TEMPLATES["lux_enter"])
+                battle_select = best_match(screen_gray, TEMPLATES["thread_lux_battle"])
+                drive = best_match(screen_gray, TEMPLATES["drive"])
+                # Enter Luxcavations Mode
+                click(luxcavations, "Luxcavations → click", hold_ms=10)
+                time.sleep(1.0)
+                screen_gray = refresh_screen()
+                # Select Thread Lux
+                click(thr_lux, "Select Thread Lux → click", hold_ms=10)
+                time.sleep(1.0)
+                screen_gray = refresh_screen()
+                # Enter Thread Lux
+                click(enter, "Lux Enter → click", hold_ms=10)
+                time.sleep(1.0)
+                screen_gray = refresh_screen()
+                # Select Best Battle
+                if isinstance(battle_select, list) and len(battle_select) > 1:
+                    # Sort by y-coordinate and select the lowest one
+                    battle_select.sort(key=lambda pt: pt[1])
+                    battle_select = battle_select[-1]
+                click(battle_select, "Thread Lux Battle Select → click", hold_ms=10)
+                time.sleep(1.0)
+                screen_gray = refresh_screen()
+                # Select Drive
+                click(drive, "Drive → click", hold_ms=10)
+                time.sleep(1.0)
+                screen_gray = refresh_screen()
                 continue
 
+            # B) EXP Luxcavation automation
             if lux_EXP:
-                #later
+                luxcavations = best_match(screen_gray, TEMPLATES["luxcavations"])
+                exp_lux = best_match(screen_gray, TEMPLATES["select_exp_lux"])
+                enter = best_match(screen_gray, TEMPLATES["exp_lux_enter"])
+                drive = best_match(screen_gray, TEMPLATES["drive"])
+                # Enter Luxcavations Mode
+                click(luxcavations, "Luxcavations → click", hold_ms=10)
+                time.sleep(1.0)
+                screen_gray = refresh_screen()
+                # Select EXP Lux
+                click(exp_lux, "Select EXP Lux → click", hold_ms=10)
+                time.sleep(1.0)
+                screen_gray = refresh_screen()
+                # Enter EXP Lux
+                if isinstance(enter, list) and len(enter) > 1:
+                    # Sort by x-coordinate and select the furthest right one
+                    enter.sort(key=lambda pt: pt[0], reverse=True)
+                    enter = enter[0]
+                click(enter, "EXP Lux Enter → click", hold_ms=10)
+                time.sleep(1.0)
+                screen_gray = refresh_screen()
+                # Select Drive
+                click(drive, "Drive → click", hold_ms=10)
+                time.sleep(1.0)
+                screen_gray = refresh_screen()
                 continue
+
+            # # needs images, will get when mirror dungeon resets again
+            # # C) Full Auto Mirror Dungeon
+            # drive = best_match(screen_gray, TEMPLATES["drive"])
+            # mirror_dungeon = best_match(screen_gray, TEMPLATES["mirror_dungeon"])
+            # mirror_enter = best_match(screen_gray, TEMPLATES["mirror_enter"])
+            # # Enter Mirror Dungeon
+            # click(drive, "Drive → click", hold_ms=10)
+            # time.sleep(1.0)
+            # screen_gray = refresh_screen()
+            # click(mirror_dungeon, "Mirror Dungeon → click", hold_ms=10)
+            # time.sleep(1.0)
+            # screen_gray = refresh_screen()
+            # # Enter Mirror Dungeon
+            # click(mirror_enter, "Mirror Enter → click", hold_ms=10)
+            # time.sleep(1.0)
+            # screen_gray = refresh_screen()
+            # if full_auto_mirror:
+            #     # auto select next path, ego gift rewards, encounter rewards
+            #     gifts = best_match(screen_gray, TEMPLATES["reward"])
+            #     e_reward = best_match(screen_gray, TEMPLATES["encounter_reward"])
+            #     next_encounter = best_match(screen_gray, TEMPLATES["encounter"])
+            #     shop_skip = best_match(screen_gray, TEMPLATES["shop_skip"])
+            #     leave = best_match(screen_gray, TEMPLATES["leave"])
+            #     if next_encounter:   
+            #         if isinstance(next_encounter, list) and len(next_encounter) > 1:
+            #             # Sort by x-coordinate and select the middle one
+            #             next_encounter.sort(key=lambda pt: pt[0])
+            #             middle_index = len(next_encounter) // 2
+            #             next_encounter = next_encounter[middle_index]
+            #         click(next_encounter, "Next Encounter → click", hold_ms=10)
+            #         time.sleep(CHECK_INTERVAL)
+            #         screen_gray = refresh_screen()
+            #     if gifts:
+            #         # Check for multiple matches and select the highest rank reward
+            #         reward_ranks = [f"gift_reward_{i}" for i in range(4, 0, -1)]
+            #         for rank in reward_ranks:
+            #             if (ranked_reward := best_match(screen_gray, TEMPLATES.get(rank))):
+            #                 click(ranked_reward, f"{rank.capitalize()} → click", hold_ms=10)
+            #                 time.sleep(CHECK_INTERVAL)
+            #                 screen_gray = refresh_screen()
+            #                 break
+            #     if e_reward:
+            #         # Check for multiple matches and select the highest rank reward
+            #         reward_ranks = [f"encounter_reward_{i}" for i in range(10, 0, -1)]
+            #         for rank in reward_ranks:
+            #             if (ranked_reward := best_match(screen_gray, TEMPLATES.get(rank))):
+            #                 click(ranked_reward, f"{rank.capitalize()} → click", hold_ms=10)
+            #                 time.sleep(CHECK_INTERVAL)
+            #                 screen_gray = refresh_screen()
+            #                 break
+            #     if shop_skip:
+            #         click(leave, "Skip Shop → click", hold_ms=10)
+            #         time.sleep(CHECK_INTERVAL)
+            #         screen_gray = refresh_screen()
+            #     # auto select next path, ego gift rewards, encounter rewards
+            #     continue
 
             # 1) Win-rate check
             if (pt := best_match(screen_gray, TEMPLATES["winrate"])):
@@ -565,11 +704,6 @@ def limbus_bot():
                 need_refresh = True
                 skip_debug  = True          # ← skip debug prints until next refresh
 
-                continue
-
-            # 7) Full Auto Mirror Dungeon
-            if full_auto_mirror:
-                # later
                 continue
 
         time.sleep(CHECK_INTERVAL)     # idle back-off to prevent CPU hogging
