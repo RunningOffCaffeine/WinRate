@@ -10,7 +10,7 @@ Dependencies: opencv-python, numpy, pyautogui, keyboard, pygetwindow
 
 # ── std-lib imports ───────────────────────────────────────────────────
 import os, threading, time, sys, json
-from collections import namedtuple
+from collections import namedtuple, deque
 
 # ── auto-installer for third-party packages ───────────────────────────
 def _require(pkg, import_as=None, pypi_name=None):
@@ -19,11 +19,12 @@ def _require(pkg, import_as=None, pypi_name=None):
     try:
         return importlib.import_module(pkg if import_as is None else import_as)
     except ModuleNotFoundError:
-        print(f"[setup] installing '{name}' …")
+        # print(f"[setup] installing '{name}' …")
         subprocess.check_call([sys.executable, "-m", "pip", "install", name])
         return importlib.import_module(pkg if import_as is None else import_as)
 
-from roi_threshold_gui import launch_gui
+from gui_config import launch_gui
+from gui_config import get_tuner
 
 if getattr(sys, 'frozen', False):
     # running in PyInstaller bundle
@@ -39,10 +40,9 @@ else:
 
 # ───────────────────────── Runtime safety ──────────────────────────────
 pyautogui.FAILSAFE = True
-pyautogui.PAUSE    = 0.05
+pyautogui.PAUSE    = 0.01 # 10 ms between actions
 
-exit_event = threading.Event()
-pause_event = threading.Event()
+pause_event = threading.Event()    # set by hotkey → pauses current run
 
 # ─────────────────────── user-configurable settings ────────────────────
 # moved to GUI
@@ -51,7 +51,7 @@ pause_event = threading.Event()
 #     if delay_ms < 10:
 #         raise ValueError("Minimum delay is 10 ms.")
 #     else:
-#         # print(f"Frame-grab interval set to {delay_ms} ms")
+#         print(f"Frame-grab interval set to {delay_ms} ms")
 #         pass
 #     print(f"Frame-grab interval set to {delay_ms} ms")
 # except ValueError:
@@ -103,38 +103,40 @@ def set_delay_ms(ms: int):
     global delay_ms, CHECK_INTERVAL
     delay_ms = max(ms, 10)  # never < 10 ms
     CHECK_INTERVAL = delay_ms / 1000.0
-    print(f"Frame-grab interval set to {CHECK_INTERVAL:.3f} s")
+    # print(f"Frame-grab interval set to {CHECK_INTERVAL:.3f} s")
 
 def set_is_HDR(is_hdr: bool):
     global is_HDR
     is_HDR = is_hdr
-    print(f"Mode == {'HDR' if is_HDR else 'SDR'}")
+    # print(f"Mode == {'HDR' if is_HDR else 'SDR'}")
     _refresh_templates() # reload templates
 
 def set_debug_mode(debug_mode: bool):
     global debug_flag, DEBUG_MATCH
     debug_flag = debug_mode
     DEBUG_MATCH = debug_mode
-    print(f"Debug mode {'enabled' if DEBUG_MATCH else 'disabled'}.")
+    # print(f"Debug mode {'enabled' if DEBUG_MATCH else 'disabled'}.")
     _refresh_templates() # reload templates
 
 def set_lux_thread(lux_thr: bool):
     global lux_thread
     lux_thread = lux_thr
-    print(f"Lux thread {'enabled' if lux_thread else 'disabled'}.")
+    # print(f"Lux thread {'enabled' if lux_thread else 'disabled'}.")
     _refresh_templates() # reload templates
 
 def set_lux_exp(lux_exp: bool):
     global lux_EXP
     lux_EXP = lux_exp
-    print(f"Lux exp {'enabled' if lux_EXP else 'disabled'}.")
+    # print(f"Lux exp {'enabled' if lux_EXP else 'disabled'}.")
     _refresh_templates() # reload templates
 
 def set_full_auto_mirror(full_auto: bool):
     global full_auto_mirror
     full_auto_mirror = full_auto
-    print(f"Full auto mirror {'enabled' if full_auto else 'disabled'}.")
+    # print(f"Full auto mirror {'enabled' if full_auto else 'disabled'}.")
     _refresh_templates() # reload templates
+
+
 
 skip_debug = False
 printed_this_loop = False
@@ -245,6 +247,8 @@ def active_window_title() -> str:
     except Exception:
         return ""
 
+debug_log = deque(maxlen=7)
+
 def best_match(screen_gray: np.ndarray, tmpl: Tmpl, *, label: str = ""):
     global last_vals, last_pass
 
@@ -285,6 +289,7 @@ def best_match(screen_gray: np.ndarray, tmpl: Tmpl, *, label: str = ""):
 
     # record last passing score
     last_pass[key] = max_val
+    debug_log.append(f"{key}: {max_val:.3f}")
 
     # return center‐of‐match in full‐screen coords
     cx = x + max_loc[0] + tw//2
@@ -292,8 +297,8 @@ def best_match(screen_gray: np.ndarray, tmpl: Tmpl, *, label: str = ""):
     return (cx, cy)
 
 def click(pt, label=None, hold_ms=0):
-    if label:
-        print(label, pt)          # pt is (x,y) in mss / physical pixels
+    # if label:
+        # print(label, pt)          # pt is (x,y) in mss / physical pixels
     # step-1 : translate from monitor-local to absolute physical
     phys_x = MON_X + pt[0]
     phys_y = MON_Y + pt[1]
@@ -349,6 +354,7 @@ launch_gui(
     set_debug_mode,         # debug_cb
     lambda: last_vals,      # debug_vals_fn
     lambda: last_pass,      # debug_pass_fn
+    lambda: debug_log,      # debug_log_fn
     DEFAULT_TEMPLATE_SPEC,  # default_spec
     lux_thread,             # initial_lux_thread
     lux_EXP,                # initial_lux_EXP
@@ -360,17 +366,16 @@ launch_gui(
 
 
 # ───────────────────────────  Main loop  ───────────────────────────────
-exit_event = threading.Event()    # set by hotkey → stops current run
-
+pause_event = threading.Event()
 def limbus_bot():
-    """Runs until exit_event is set, then returns to caller."""
+    """Runs until pause_event or os.exit(), then returns to caller."""
     global last_grab
     global skip_debug
     global printed_this_loop
     need_refresh = True
     screen_gray: np.ndarray | None = None
 
-    while not exit_event.is_set():
+    while True:
         # Bot is paused: do nothing but loop
         if pause_event.is_set():
             time.sleep(CHECK_INTERVAL)
@@ -507,7 +512,7 @@ def limbus_bot():
 
             # 1) Win-rate check
             if (pt := best_match(screen_gray, TEMPLATES["winrate"])):
-                print("Auto-Battle (WinRate) – running…")
+                # print("Auto-Battle (WinRate) – running…")
                 # Move pointer to a clear spot: centre-x, 10 % down
                 # (this is to skip boss encounter text that appears
                 #  in certain fights, especially in Mirror Dungeons,
@@ -527,7 +532,7 @@ def limbus_bot():
 
             # 2) Speech-menu three-step sequence
             if (pt := best_match(screen_gray, TEMPLATES["speech_menu"])):
-                print("Dialogue Skip – running…")
+                # print("Dialogue Skip – running…")
                 # Step 1: click Speech Menu
                 # (this is the Hamburger Menu found in dialogues)
                 click(pt, "Speech Menu → click", hold_ms=10)
@@ -563,28 +568,28 @@ def limbus_bot():
 
             # ── Bail-early overlays ──────────────────────────────────────────────
             if choice_overlay and not choice_skip:
-                print("Choice Needed – waiting…")
+                # print("Choice Needed – waiting…")
                 need_refresh = True
                 skip_debug  = True          # ← skip debug prints until next refresh
 
                 continue
 
             elif ego_block:
-                print("EGO Gift Check – waiting…")
+                # print("EGO Gift Check – waiting…")
                 need_refresh = True
                 skip_debug  = True          # ← skip debug prints until next refresh
 
                 continue
 
             elif fusion_overlay:
-                print("Fusion Check – waiting…")
+                # print("Fusion Check – waiting…")
                 need_refresh = True
                 skip_debug  = True          # ← skip debug prints until next refresh
 
                 continue
 
             elif ego_get_overlay:
-                print("EGO Gift Recieved - running...")
+                # print("EGO Gift Recieved - running...")
                 # # Move pointer to a clear spot: centre-x, 80% down
                 # h, w = screen_gray.shape
                 # pyautogui.moveTo(w // 2, int(h * 0.75))
@@ -595,7 +600,7 @@ def limbus_bot():
                 continue
 
             elif choice_skip:
-                print("EGO Gift Recieved - running...")
+                # print("EGO Gift Recieved - running...")
                 # # Move pointer to a clear spot: centre-x, 80% down
                 # h, w = screen_gray.shape
                 # pyautogui.moveTo(w // 2, int(h * 0.75))
@@ -609,7 +614,7 @@ def limbus_bot():
             black = best_match(screen_gray, TEMPLATES["black_confirm"])
             white = best_match(screen_gray, TEMPLATES["confirm"])
             if black or white:
-                print("Confirm – running…")
+                # print("Confirm – running…")
                 click(black or white, "Confirm → click", hold_ms=10)
                 time.sleep(CHECK_INTERVAL)
                 need_refresh = True
@@ -620,7 +625,7 @@ def limbus_bot():
             # 4) Skip button
             # (this is the Skip button in the Abnormality Event)
             if (pt := best_match(screen_gray, TEMPLATES["skip"])):
-                print("Skip Abno. Dialogue – running…")
+                # print("Skip Abno. Dialogue – running…")
                 click(pt, "Skip → click", hold_ms=10)
                 h, w = screen_gray.shape
                 pyautogui.moveTo(w // 2, int(h * 0.10)) # move away to avoid hiding skip button
@@ -688,7 +693,7 @@ def limbus_bot():
             battle = best_match(screen_gray, TEMPLATES["battle"])
             chain  = best_match(screen_gray, TEMPLATES["chain_battle"])
             if battle or chain:
-                print("To Battle – running…")
+                # print("To Battle – running…")
                 click(battle or chain, "To Battle → click", hold_ms=10)
                 time.sleep(CHECK_INTERVAL)
                 need_refresh = True
@@ -710,34 +715,33 @@ def limbus_bot():
 
         # ───────── extra newline after each full debug pass ─────────
         if printed_this_loop:          # print exactly one blank line
-            print()
+            # print()
             printed_this_loop = False  # ← reset so we don’t print again next loop
 
 # ──────────────────────── Supervisor / hotkey wrapper ──────────────────
 def main():
     # Register global hotkeys once
     # Pause / resume the bot with Ctrl+Shift+D
-    keyboard.add_hotkey('ctrl+shift+d',
-                        lambda: exit_event.set(),
-                        suppress=True, trigger_on_release=True)
+    keyboard.add_hotkey(
+        'ctrl+shift+d',
+        lambda: (
+            get_tuner() and get_tuner()._toggle_bot()
+        ),
+        suppress=True, trigger_on_release=True
+    )
 
-    # HARD BREAK  → Ctrl + Alt + D
-    keyboard.add_hotkey('ctrl+alt+d',
-                        lambda: os._exit(0),       # exits immediately, no clean-up
-                        suppress=True, trigger_on_release=False)   # fire on key-down
+    # HARD QUIT  → Ctrl + Alt + D
+    keyboard.add_hotkey(
+        'ctrl+alt+d',
+        lambda: os._exit(0),
+        suppress=True, trigger_on_release=False
+    )
 
-    print("Limbus bot ready.")
+    # print("Limbus bot ready.")
     
     while True:
-        exit_event.clear()
-        print("\nStarting bot — Ctrl+Shift+D to pause.")
         limbus_bot()                     # returns when exit_event is set
-        print("\nBot paused.  Press Enter to restart or Ctrl+C to quit.")
-        try:
-            input()                      # wait for a single line
-        except (KeyboardInterrupt, EOFError):
-            print("\nExiting. Goodbye!")
-            break
+        break
 
 # ───────────────────────────── Entrypoint loop ─────────────────────────
 if __name__ == "__main__":

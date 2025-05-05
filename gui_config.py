@@ -25,35 +25,36 @@ class Tuner(tk.Tk):
         live_spec, orig_spec, update_cb, pause_event,
         initial_delay_ms, initial_is_HDR,
         initial_debug, delay_cb, hdr_cb, debug_cb,
-        debug_vals_fn, debug_pass_fn, default_spec,
-        lux_thread, lux_EXP, mirror_full_auto, 
+        debug_vals_fn, debug_pass_fn, debug_log_fn,
+        default_spec, lux_thread, lux_EXP, mirror_full_auto, 
         lux_thread_cb, lux_EXP_cb, mirror_full_auto_cb
     ):
         super().__init__(className="Limbus tuner")
         self.title("Limbus tuner")
         self.base_width     = 500               # width when DEBUG off
-        self.debug_extra    = 400               # extra width for the debug panel
-        self.base_height    = 460               # whatever you set
-        self.attributes('-topmost', True)       # <— keep on top
+        self.debug_extra    = 450               # extra width for the debug panel
+        self.base_height    = 520               # whatever you set
+        # self.attributes('-topmost', True)       # <— keep on top
         # start at the correct size for initial_debug:
         w = self.base_width + (self.debug_extra if initial_debug else 0)
         self.geometry(f"{w}x{self.base_height}")
         self.minsize(self.base_width, self.base_height)
 
-        self.pause_event = pause_event
-        self.delay_cb = delay_cb
-        self.hdr_cb   = hdr_cb
-        self.is_HDR = initial_is_HDR
-        self.debug_cb = debug_cb
-        self.debug_vals_fn  = debug_vals_fn
-        self.debug_pass_fn  = debug_pass_fn
-        self.default_spec = default_spec
-        self.lux_thread_cb = lux_thread_cb
-        self.lux_EXP_cb = lux_EXP_cb
-        self.mirror_full_auto_cb = mirror_full_auto_cb
-        self.lux_thread = lux_thread
-        self.lux_EXP = lux_EXP
-        self.mirror_full_auto = mirror_full_auto
+        self.pause_event            = pause_event
+        self.delay_cb               = delay_cb
+        self.hdr_cb                 = hdr_cb
+        self.is_HDR                 = initial_is_HDR
+        self.debug_cb               = debug_cb
+        self.debug_vals_fn          = debug_vals_fn
+        self.debug_pass_fn          = debug_pass_fn
+        self.debug_log_fn           = debug_log_fn
+        self.default_spec           = default_spec
+        self.lux_thread_cb          = lux_thread_cb
+        self.lux_EXP_cb             = lux_EXP_cb
+        self.mirror_full_auto_cb    = mirror_full_auto_cb
+        self.lux_thread             = lux_thread
+        self.lux_EXP                = lux_EXP
+        self.mirror_full_auto       = mirror_full_auto
 
         # ─── state vars ─────────────────────────────────────
         self.spec        = live_spec
@@ -137,7 +138,7 @@ class Tuner(tk.Tk):
         entry.bind("<Return>", self._on_thr_entry)
         self.img_label = tk.Label(sf)
         self.img_label.pack(side="right", padx=4)
-        ttk.Label(self, text="threshold").pack()
+        # ttk.Label(self, text="threshold").pack()
 
         # ── ROI display & pick ─────────────────────────
         self.lab_roi = ttk.Label(controls, text="ROI : None")
@@ -145,16 +146,19 @@ class Tuner(tk.Tk):
         ttk.Button(controls, text="Pick ROI", command=self._snip).pack()
 
         # ── Reset / Pause / Quit / Save ────────────────
-        bar = ttk.Frame(controls); bar.pack(fill="x", pady=(8,4))
+        bottom = ttk.Frame(controls)
+        bottom.pack(side="bottom", fill="x", pady=(8,4))
+
+        bar = ttk.Frame(bottom); bar.pack(fill="x", pady=(8,4))
         ttk.Button(bar, text="Reset thr",  command=self._reset_thr) .pack(side="left", expand=True, fill="x", padx=(0,2))
         ttk.Button(bar, text="Reset ROI",  command=self._reset_roi) .pack(side="left", expand=True, fill="x", padx=(2,2))
 
-        self.btn_pause = tk.Button(controls, text="Pause Bot", bg="green", fg="white",
+        self.btn_pause = tk.Button(bottom, text="Pause Bot", bg="green", fg="white",
                                    command=self._toggle_bot)
         self.btn_pause.pack(fill="x", pady=(0,6))
-        tk.Button(controls, text="Quit", bg="red", fg="white",
+        tk.Button(bottom, text="Quit", bg="red", fg="white",
                   command=self._quit).pack(fill="x")
-        ttk.Button(controls, text="Save Config", command=self._save_config) \
+        ttk.Button(bottom, text="Save Config", command=self._save_config) \
             .pack(fill="x", pady=(4,0))
 
         # ── debug table placeholder ─────────────────────
@@ -165,7 +169,7 @@ class Tuner(tk.Tk):
 
     def _build_debug_panel(self, parent):
         """create but hide the debug panel"""
-        self.DEBUG_PANEL = ttk.Frame(parent, relief="sunken", borderwidth=1)
+        self.DEBUG_PANEL = ttk.Frame(parent, relief="sunken", borderwidth=0.5)
         self.DEBUG_PANEL.pack(side="right", fill="y", padx=(8,0))
         ttk.Label(self.DEBUG_PANEL, text="Debug Scores", font=("TkDefaultFont", 10, "bold"))\
             .pack(pady=(4,2))
@@ -180,9 +184,11 @@ class Tuner(tk.Tk):
         self.tree.column("threshold", width= 80, anchor="e")
         self.tree.column("last_pass", width= 80, anchor="e")
         self.tree.pack(fill="both", expand=True, padx=4, pady=(0,4))
-        hscroll = ttk.Scrollbar(self.DEBUG_PANEL, orient="horizontal", command=self.tree.xview)
-        self.tree.configure(xscrollcommand=hscroll.set)
-        hscroll.pack(fill="x", side="bottom")
+        # add a label and a log console below the table
+        lbl = ttk.Label(self.DEBUG_PANEL, text="Last Passed Check", font=("TkDefaultFont", 10, "bold"))
+        lbl.pack(pady=(4,0))
+        self.log_console = tk.Listbox(self.DEBUG_PANEL, height=7, activestyle="none")
+        self.log_console.pack(fill="both", expand=False, padx=4, pady=(0,4))
         self.DEBUG_PANEL.pack_forget()  # start hidden
 
     # ────────────────────────────────────────────────────────────────
@@ -271,7 +277,7 @@ class Tuner(tk.Tk):
         elif os.path.isfile(candidate2):
             img_path = candidate2
         else:
-            print(f"[Tuner] no preview file found for {base!r}")
+            # print(f"[Tuner] no preview file found for {base!r}")
             self.img_label.config(image="", text="No preview")
             return
 
@@ -282,11 +288,12 @@ class Tuner(tk.Tk):
             self._photo = ImageTk.PhotoImage(img)
             self.img_label.config(image=self._photo, text="")
         except Exception as e:
-            print(f"[Tuner] error loading preview for {base!r}: {e}")
+            # print(f"[Tuner] error loading preview for {base!r}: {e}")
             if hasattr(self, "img_label"):
                 self.img_label.config(image="", text="No preview")
-            else:
-                print(f"[Tuner] no img_label to show preview for {base!r}")
+            # else:
+            #     print(f"[Tuner] no img_label to show preview for {base!r}")
+            #     
 
     def _set_thr(self, *_):
         """
@@ -370,23 +377,24 @@ class Tuner(tk.Tk):
         try:
             with open(path, "w") as fp:
                 json.dump(cfg, fp, indent=2)
-            print(f"Configuration saved → {path}")
+            # print(f"Configuration saved → {path}")
         except Exception as e:
-            print(f"[Tuner] failed to save config: {e}")
+            # print(f"[Tuner] failed to save config: {e}")
+            return
 
     def _toggle_bot(self):
         if not self.pause_event.is_set():
             self.pause_event.set()
             self.btn_pause.config(text="Resume Bot", bg="red")
-            print("Program paused")
+            # print("Program paused")
         else:
             self.pause_event.clear()
             self.btn_pause.config(text="Pause Bot", bg="green")
-            print("Program resumed")
+            # print("Program resumed")
 
 
     def _quit(self):
-        print("Quitting program…")
+        # print("Quitting program…")
         os._exit(0)
 
     # ── snipping-style ROI picker ───────────────────────────────────
@@ -462,10 +470,30 @@ class Tuner(tk.Tk):
                     f"{last_ok:.3f}"
                 )
             )
-        # schedule next update
-        self.after(100, self._refresh_debug)
+        log = self.debug_log_fn()   # coming from launch_gui
+        self.log_console.delete(0, "end")
+        for line in log:
+            self.log_console.insert("end", line)
+        # scroll to the bottom
+        self.log_console.yview("end")
+        # if the debug panel is open, keep refreshing it
+        if self.var_debug.get():
+            # if the bot is paused, don't refresh the debug panel
+            if not self.pause_event.is_set():
+                # schedule next update
+                self.after(100, self._refresh_debug)
+        else:
+            # if the debug panel is closed, stop refreshing it
+            self.after_cancel(self._refresh_debug)
 
 # ──────────────────────────────────────────────────────────────
+# module-level holder
+_tuner_instance: "Tuner | None" = None
+
+def get_tuner() -> "Tuner | None":
+    """Once it’s up, returns the running Tuner instance."""
+    return _tuner_instance
+
 def launch_gui(
     template_spec,
     refresh_fn,
@@ -478,6 +506,7 @@ def launch_gui(
     debug_cb,               # fn: bool -> None
     debug_vals_fn,          # fn: None -> dict[name,score]
     debug_pass_fn,          # fn: None -> dict[name,score]
+    debug_log_fn,          # fn: None -> list[str]
     default_spec,           # your `DEFAULT_TEMPLATE_SPEC`
     initial_lux_thread,     # bool
     initial_lux_EXP,        # bool
@@ -489,7 +518,9 @@ def launch_gui(
     import copy, threading
     orig = copy.deepcopy(template_spec)
     def _run():
-        Tuner(
+        global _tuner_instance
+        # instantiate the Tuner and store it to the module‐level variable
+        _tuner_instance = Tuner(
             template_spec,
             orig,
             refresh_fn,
@@ -502,6 +533,7 @@ def launch_gui(
             debug_cb,
             debug_vals_fn,
             debug_pass_fn,
+            debug_log_fn,
             default_spec,
             initial_lux_thread,
             initial_lux_EXP,
@@ -509,5 +541,10 @@ def launch_gui(
             lux_thread_cb,
             lux_EXP_cb,
             mirror_full_auto_cb
-        ).mainloop()
+        )
+        _tuner_instance.mainloop()
     threading.Thread(target=_run, daemon=True).start()
+
+def get_tuner() -> Tuner | None:
+    """Retrieve the single Tuner instance once it's up."""
+    return _tuner_instance
