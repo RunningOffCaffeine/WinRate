@@ -270,7 +270,7 @@ class Tuner(tk.Tk):
         if not self.var_debug.get():
             return
 
-        # --- update the tree as before ---
+        # --- update scores table ---
         for iid in self.tree.get_children():
             self.tree.delete(iid)
         scores = self.debug_vals_fn()
@@ -282,7 +282,7 @@ class Tuner(tk.Tk):
                 values=(name, f"{val:.3f}", f"{thr:.3f}", f"{last_ok:.3f}")
             )
 
-        # auto–show/hide tree scrollbar
+        # auto–show/hide the scores scrollbar
         total_rows   = len(self.tree.get_children())
         visible_rows = int(self.tree['height'])
         if total_rows > visible_rows:
@@ -290,26 +290,18 @@ class Tuner(tk.Tk):
         else:
             self.score_vsb.grid_remove()
 
-        # --- update the log console without always resetting its view ---
-        logs = list(self.debug_log_fn())   # ensure it's a list
-        # grab current scroll fraction (0.0=top … 1.0=bottom)
-        top_frac, _ = self.log_console.yview()
-
-        # repopulate
-        self.log_console.delete(0, tk.END)
-        for line in logs:
-            self.log_console.insert(tk.END, line)
-
-        # only auto-scroll if new lines were added
-        curr_len = len(logs)
-        if curr_len > self._last_log_len:
+        # --- append only the *new* log entries ---
+        all_logs = list(self.debug_log_fn())  # ensure we can slice
+        new_logs = all_logs[self._last_log_len:]
+        for msg in new_logs:
+            self.log_console.insert(tk.END, msg)
+        # if new lines arrived, scroll down
+        if new_logs:
             self.log_console.see(tk.END)
-        else:
-            # restore whatever fraction was showing before
-            self.log_console.yview_moveto(top_frac)
-        self._last_log_len = curr_len
+        # update our counter
+        self._last_log_len = len(all_logs)
 
-        # auto–show/hide log scrollbar
+        # auto–show/hide the log scrollbar
         total_lines   = self.log_console.size()
         visible_lines = int(self.log_console['height'])
         if total_lines > visible_lines:
@@ -360,7 +352,7 @@ class Tuner(tk.Tk):
         sel = self.var_text_skip.get()
         # update our own copy
         self.text_skip = sel
-        self.text_skip_cb(sel)            
+        self.text_skip_cb(sel)
 
     def _toggle_thread_lux(self):
         sel = self.var_lux_thread.get()
@@ -494,6 +486,7 @@ class Tuner(tk.Tk):
 
         # make sure the entry also shows the clamped/rounded value
         self.var_thr_entry.set(f"{val:.3f}")
+        self.log_console.insert(tk.END, f"Set threshold for {name} to {val:.3f}")
 
     def _reset_thr(self):
         name = self.var_name.get()
@@ -504,6 +497,7 @@ class Tuner(tk.Tk):
         self.var_thr.set(orig_thr)
         self.var_thr_entry.set(f"{orig_thr:.3f}")
         self.update_cb()
+        self.log_console.insert(tk.END, f"Reset threshold for {name} to {orig_thr:.3f}")
 
     def _reset_roi(self):
         name = self.var_name.get()
@@ -513,6 +507,7 @@ class Tuner(tk.Tk):
         self.spec[name] = (base, thr, orig_roi)
         self.lab_roi.config(text=f"ROI : {orig_roi}")
         self.update_cb()
+        self.log_console.insert(tk.END, f"Reset ROI for {name} to {orig_roi}")
 
     def _save_config(self):
         """
@@ -531,24 +526,23 @@ class Tuner(tk.Tk):
         try:
             with open(path, "w") as fp:
                 json.dump(cfg, fp, indent=2)
-            # print(f"Configuration saved → {path}")
+            self.log_console.insert(tk.END, f"Config saved to {path}")
         except Exception as e:
-            # print(f"[Tuner] failed to save config: {e}")
+            self.log_console.insert(tk.END, f"Error saving config: {e}")
             return
 
     def _toggle_bot(self):
         if not self.pause_event.is_set():
             self.pause_event.set()
             self.btn_pause.config(text="Resume Bot", bg="red")
-            # print("Program paused")
+            self.log_console.insert(tk.END, "Bot paused")
         else:
             self.pause_event.clear()
             self.btn_pause.config(text="Pause Bot", bg="green")
-            # print("Program resumed")
-
+            self.log_console.insert(tk.END, "Bot resumed")
 
     def _quit(self):
-        # print("Quitting program…")
+        self.log_console.insert(tk.END, "Tuner quitting")
         os._exit(0)
 
     # ── snipping-style ROI picker ───────────────────────────────────
@@ -593,6 +587,7 @@ class Tuner(tk.Tk):
             base, thr, _ = self.spec[name]
             self.spec[name] = (base, thr,
                                tuple(round(v, 3) for v in (fx, fy, fw, fh)))
+            self.log_console.insert(tk.END, f"Set ROI for {name} to {self.spec[name][2]}")
             self.lab_roi.config(text=f"ROI : {self.spec[name][2]}")
             self.update_cb()
             ov.destroy()

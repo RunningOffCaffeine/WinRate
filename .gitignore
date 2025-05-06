@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# JSON threshold / roi save data
+*.json
+
 # Distribution / packaging
 build/
 dist/

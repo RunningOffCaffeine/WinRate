@@ -104,50 +104,68 @@ def set_delay_ms(ms: int):
     global delay_ms, CHECK_INTERVAL
     delay_ms = max(ms, 10)  # never < 10 ms
     CHECK_INTERVAL = delay_ms / 1000.0
-    # print(f"Frame-grab interval set to {CHECK_INTERVAL:.3f} s")
+    debug_log.append(f"Frame-grab interval set to {delay_ms} ms.")
 
 def set_is_HDR(is_hdr: bool):
     global is_HDR
     is_HDR = is_hdr
     debug_log.append(f"Mode == {'HDR' if is_HDR else 'SDR'}.")
-    # print(f"Mode == {'HDR' if is_HDR else 'SDR'}")
     _refresh_templates() # reload templates
+    # poke the tuner to update right away
+    tuner = get_tuner()
+    if tuner:
+        tuner.after(0, tuner._refresh_debug)
 
 def set_debug_mode(debug_mode: bool):
     global debug_flag, DEBUG_MATCH
     debug_flag = debug_mode
     DEBUG_MATCH = debug_mode
     debug_log.append(f"Debug mode {'enabled' if DEBUG_MATCH else 'disabled'}.")
-    # print(f"Debug mode {'enabled' if DEBUG_MATCH else 'disabled'}.")
     _refresh_templates() # reload templates
+    # poke the tuner to update right away
+    tuner = get_tuner()
+    if tuner:
+        tuner.after(0, tuner._refresh_debug)
 
 def set_text_skip(skip: bool):
     global text_skip
     text_skip = skip
     debug_log.append(f"Text skip {'enabled' if text_skip else 'disabled'}.")
-    # print(f"Text skip {'enabled' if text_skip else 'disabled'}.")
     _refresh_templates() # reload templates
+    # poke the tuner to update right away
+    tuner = get_tuner()
+    if tuner:
+        tuner.after(0, tuner._refresh_debug)
 
 def set_lux_thread(lux_thr: bool):
     global lux_thread
     lux_thread = lux_thr
     debug_log.append(f"Thread Luxcavation {'enabled' if lux_thread else 'disabled'}.")
-    # print(f"Lux thread {'enabled' if lux_thread else 'disabled'}.")
     _refresh_templates() # reload templates
+    # poke the tuner to update right away
+    tuner = get_tuner()
+    if tuner:
+        tuner.after(0, tuner._refresh_debug)
 
 def set_lux_exp(lux_exp: bool):
     global lux_EXP
     lux_EXP = lux_exp
     debug_log.append(f"EXP Luxcavation {'enabled' if lux_EXP else 'disabled'}.")
-    # print(f"Lux exp {'enabled' if lux_EXP else 'disabled'}.")
     _refresh_templates() # reload templates
+    # poke the tuner to update right away
+    tuner = get_tuner()
+    if tuner:
+        tuner.after(0, tuner._refresh_debug)
 
 def set_full_auto_mirror(full_auto: bool):
     global full_auto_mirror
     full_auto_mirror = full_auto
     debug_log.append(f"Full auto mirror {'enabled' if full_auto else 'disabled'}.")
-    # print(f"Full auto mirror {'enabled' if full_auto else 'disabled'}.")
     _refresh_templates() # reload templates
+    # poke the tuner to update right away
+    tuner = get_tuner()
+    if tuner:
+        tuner.after(0, tuner._refresh_debug)
 
 # ───────────────────────── Template metadata ───────────────────────────
 Tmpl = namedtuple("Tmpl", "img mask thresh roi")    # roi == (x, y, w, h) or None
@@ -354,9 +372,9 @@ if os.path.isfile(config_path):
                                    tuple(vals["roi"]) if vals["roi"] else None)
 
 launch_gui(
-    TEMPLATE_SPEC,
-    _refresh_templates,
-    pause_event,
+    TEMPLATE_SPEC,          # initial_template_spec,
+    _refresh_templates,     # refresh_templates_cb,
+    pause_event,            # pause_event,
     delay_ms,               # initial_delay_ms
     is_HDR,                 # initial_is_HDR
     debug_flag,             # initial_debug
@@ -610,7 +628,7 @@ def limbus_bot():
                 debug_log.append("[A-1] Drive check")
                 if drive_pt is not None:
                     click(drive_pt, "Drive → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
                     time.sleep(CHECK_INTERVAL)
 
@@ -619,7 +637,7 @@ def limbus_bot():
                 debug_log.append("[A-2] Luxcavations check")
                 if lux_pt is not None:
                     click(lux_pt, "Luxcavations → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
                     time.sleep(CHECK_INTERVAL)
 
@@ -628,7 +646,7 @@ def limbus_bot():
                 debug_log.append("[A-3] Select Thread Lux check")
                 if thr_pt is not None:
                     click(thr_pt, "Select Thread Lux → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
                     time.sleep(CHECK_INTERVAL)
 
@@ -637,7 +655,7 @@ def limbus_bot():
                 debug_log.append("[A-4] Lux Enter check")
                 if enter_pt is not None:
                     click(enter_pt, "Lux Enter → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
                     time.sleep(CHECK_INTERVAL)
 
@@ -653,7 +671,7 @@ def limbus_bot():
                     battle_pt = battle_pts
                 if battle_pt is not None:
                     click(battle_pt, "Thread Lux Battle Select → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
                     time.sleep(CHECK_INTERVAL)
 
@@ -662,9 +680,9 @@ def limbus_bot():
                 debug_log.append("[A-6] To Battle check")
                 if battle_pt is not None:
                     click(battle_pt, "To Battle → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(2.0)
 
                 # 7) Set back to false, run main loop
                 lux_thread = set_lux_thread(False)
@@ -678,7 +696,7 @@ def limbus_bot():
                 debug_log.append("[B-1] Drive check")
                 if drive_pt is not None:
                     click(drive_pt, "Drive → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
                     time.sleep(CHECK_INTERVAL)
 
@@ -687,7 +705,7 @@ def limbus_bot():
                 debug_log.append("[B-2] Luxcavations check")
                 if lux_pt is not None:
                     click(lux_pt, "Luxcavations → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
                     time.sleep(CHECK_INTERVAL)
 
@@ -696,7 +714,7 @@ def limbus_bot():
                 debug_log.append("[B-3] Select EXP Lux check")
                 if exp_pt is not None:
                     click(exp_pt, "Select EXP Lux → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
                     time.sleep(CHECK_INTERVAL)
 
@@ -717,7 +735,7 @@ def limbus_bot():
 
                 if enter_pt is not None:
                     click(enter_pt, "EXP Lux Enter → click", hold_ms=10)
-                    time.sleep(0.25)
+                    time.sleep(0.5)
                     screen_gray = refresh_screen()
                     time.sleep(CHECK_INTERVAL)
 
@@ -728,7 +746,7 @@ def limbus_bot():
                     click(battle_pt, "To Battle → click", hold_ms=10)
                     time.sleep(0.25)
                     screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(2.0)
                 
                 # 6) Set back to false, run main loop
                 lux_EXP = set_lux_exp(False)
