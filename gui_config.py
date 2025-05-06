@@ -23,18 +23,19 @@ class Tuner(tk.Tk):
     def __init__(
         self,
         live_spec, orig_spec, update_cb, pause_event,
-        initial_delay_ms, initial_is_HDR,
-        initial_debug, delay_cb, hdr_cb, debug_cb,
-        debug_vals_fn, debug_pass_fn, debug_log_fn,
-        default_spec, lux_thread, lux_EXP, mirror_full_auto, 
-        lux_thread_cb, lux_EXP_cb, mirror_full_auto_cb
+        initial_delay_ms, initial_is_HDR, initial_debug,
+        initial_text_skip, delay_cb, hdr_cb, debug_cb,
+        text_skip_cb, debug_vals_fn, debug_pass_fn,
+        debug_log_fn, default_spec, lux_thread, lux_EXP,
+        mirror_full_auto, lux_thread_cb, lux_EXP_cb,
+        mirror_full_auto_cb
     ):
         super().__init__(className="Limbus tuner")
         self.title("Limbus tuner")
         self.base_width     = 500               # width when DEBUG off
         self.debug_extra    = 450               # extra width for the debug panel
-        self.base_height    = 520               # whatever you set
-        # self.attributes('-topmost', True)       # <— keep on top
+        self.base_height    = 620               # whatever you set
+        self.attributes('-topmost', True)       # <— keep on top
         # start at the correct size for initial_debug:
         w = self.base_width + (self.debug_extra if initial_debug else 0)
         self.geometry(f"{w}x{self.base_height}")
@@ -48,6 +49,8 @@ class Tuner(tk.Tk):
         self.debug_vals_fn          = debug_vals_fn
         self.debug_pass_fn          = debug_pass_fn
         self.debug_log_fn           = debug_log_fn
+        self.text_skip_cb           = text_skip_cb
+        self.text_skip              = initial_text_skip
         self.default_spec           = default_spec
         self.lux_thread_cb          = lux_thread_cb
         self.lux_EXP_cb             = lux_EXP_cb
@@ -57,16 +60,22 @@ class Tuner(tk.Tk):
         self.mirror_full_auto       = mirror_full_auto
 
         # ─── state vars ─────────────────────────────────────
-        self.spec        = live_spec
-        self.orig        = orig_spec
-        self.update_cb   = update_cb
-        self.var_delay   = tk.IntVar(value=initial_delay_ms)
-        self.var_hdr     = tk.BooleanVar(value=initial_is_HDR)
-        self.var_debug   = tk.BooleanVar(value=initial_debug)
-        self.var_lux_thread = tk.BooleanVar(value=self.lux_thread)
-        self.var_lux_EXP = tk.BooleanVar(value=self.lux_EXP)
-        self.var_mirror_full_auto = tk.BooleanVar(value=self.mirror_full_auto)
-        self.DEBUG_PANEL  = None
+        self.spec                   = live_spec
+        self.orig                   = orig_spec
+        self.update_cb              = update_cb
+        self.var_delay              = tk.IntVar(value=initial_delay_ms)
+        self.var_hdr                = tk.BooleanVar(value=initial_is_HDR)
+        self.var_debug              = tk.BooleanVar(value=initial_debug)
+        self.var_text_skip          = tk.BooleanVar(value=initial_text_skip)
+        self.var_lux_thread         = tk.BooleanVar(value=self.lux_thread)
+        self.var_lux_EXP            = tk.BooleanVar(value=self.lux_EXP)
+        self.var_mirror_full_auto   = tk.BooleanVar(value=self.mirror_full_auto)
+        self.DEBUG_PANEL            = None
+
+        style = ttk.Style(self)
+        style.configure("Debug.Treeview", rowheight=24)
+
+        self._last_log_len = 0    # track how many lines we last drew
 
         # ─── top layout ─────────────────────────────────────
         container = ttk.Frame(self)
@@ -98,6 +107,12 @@ class Tuner(tk.Tk):
                         variable=self.var_debug,
                         command=self._toggle_debug
                     ).grid(row=1, column=0, sticky="w", padx=2, pady=2)
+        
+        ttk.Checkbutton(chk_frame,
+                        text="Skip Text",
+                        variable=self.var_text_skip,
+                        command=self._toggle_text_skip
+                    ).grid(row=2, column=0, sticky="w", padx=2, pady=2)
 
         # column 1
         ttk.Checkbutton(chk_frame,
@@ -170,26 +185,140 @@ class Tuner(tk.Tk):
     def _build_debug_panel(self, parent):
         """create but hide the debug panel"""
         self.DEBUG_PANEL = ttk.Frame(parent, relief="sunken", borderwidth=0.5)
-        self.DEBUG_PANEL.pack(side="right", fill="y", padx=(8,0))
-        ttk.Label(self.DEBUG_PANEL, text="Debug Scores", font=("TkDefaultFont", 10, "bold"))\
-            .pack(pady=(4,2))
-        cols = ("name", "value","threshold", "last_pass")
-        self.tree = ttk.Treeview(self.DEBUG_PANEL, columns=cols, show="headings", height=15)
-        self.tree.heading("name",       text="Template")
-        self.tree.heading("value",      text="Score")
-        self.tree.heading("threshold",  text="Thresh")
-        self.tree.heading("last_pass",  text="Last Pass")
-        self.tree.column("name",      width=160, anchor="w")
-        self.tree.column("value",     width= 80, anchor="e")
-        self.tree.column("threshold", width= 80, anchor="e")
-        self.tree.column("last_pass", width= 80, anchor="e")
-        self.tree.pack(fill="both", expand=True, padx=4, pady=(0,4))
-        # add a label and a log console below the table
-        lbl = ttk.Label(self.DEBUG_PANEL, text="Last Passed Check", font=("TkDefaultFont", 10, "bold"))
-        lbl.pack(pady=(4,0))
-        self.log_console = tk.Listbox(self.DEBUG_PANEL, height=7, activestyle="none")
-        self.log_console.pack(fill="both", expand=False, padx=4, pady=(0,4))
-        self.DEBUG_PANEL.pack_forget()  # start hidden
+        self.DEBUG_PANEL.pack(side="right", fill="both", padx=(8,0), pady=8)
+
+        # configure grid: one column, four rows. row1 weight=3, row3 weight=2
+        self.DEBUG_PANEL.columnconfigure(0, weight=1)
+        self.DEBUG_PANEL.rowconfigure(1, weight=6)
+        self.DEBUG_PANEL.rowconfigure(3, weight=4)
+
+        # — Scores header —
+        lbl_scores = ttk.Label(
+            self.DEBUG_PANEL,
+            text="Debug Scores",
+            font=("TkDefaultFont", 10, "bold")
+        )
+        lbl_scores.grid(row=0, column=0, sticky="n", pady=(4,2))
+
+        # — Scores table —
+        cols = ("name", "value", "threshold", "last_pass")
+        self.tree = ttk.Treeview(
+            self.DEBUG_PANEL,
+            columns=cols,
+            show="headings",
+            height=15,
+            style="Debug.Treeview"
+        )
+        for col, heading, width in [
+            ("name",      "Template",    160),
+            ("value",     "Score",        80),
+            ("threshold", "Thresh",       80),
+            ("last_pass", "Last Pass",    80),
+        ]:
+            self.tree.heading(col, text=heading)
+            self.tree.column(col, width=width, anchor="w" if col=="name" else "e")
+
+        self.tree.grid(
+            row=1, column=0,
+            sticky="nsew",
+            padx=(4,0), pady=(0,4)
+        )
+
+        # — Scores scrollbar (initially hidden) —
+        self.score_vsb = ttk.Scrollbar(
+            self.DEBUG_PANEL,
+            orient="vertical",
+            command=self.tree.yview
+        )
+        self.tree.configure(yscrollcommand=self.score_vsb.set)
+        self.score_vsb.grid(row=1, column=1, sticky="ns", pady=(0,4))
+        self.score_vsb.grid_remove()
+
+        # — Log header —
+        lbl_log = ttk.Label(
+            self.DEBUG_PANEL,
+            text="Log",
+            font=("TkDefaultFont", 10, "bold")
+        )
+        lbl_log.grid(row=2, column=0, sticky="n", pady=(4,2))
+
+        # — Log console —
+        self.log_console = tk.Listbox(
+            self.DEBUG_PANEL,
+            activestyle="none"
+        )
+        self.log_console.grid(
+            row=3, column=0,
+            sticky="nsew",
+            padx=(4,0), pady=(0,4)
+        )
+
+        # — Log scrollbar (initially hidden) —
+        self.log_vsb = ttk.Scrollbar(
+            self.DEBUG_PANEL,
+            orient="vertical",
+            command=self.log_console.yview
+        )
+        self.log_console.configure(yscrollcommand=self.log_vsb.set)
+        self.log_vsb.grid(row=3, column=1, sticky="ns", pady=(0,4))
+        self.log_vsb.grid_remove()
+
+        # start hidden
+        self.DEBUG_PANEL.pack_forget()
+
+    def _refresh_debug(self):
+        if not self.var_debug.get():
+            return
+
+        # --- update the tree as before ---
+        for iid in self.tree.get_children():
+            self.tree.delete(iid)
+        scores = self.debug_vals_fn()
+        passes = self.debug_pass_fn()
+        for name, (_, thr, _) in self.spec.items():
+            val     = scores.get(name, 0.0)
+            last_ok = passes.get(name, 0.0)
+            self.tree.insert("", "end",
+                values=(name, f"{val:.3f}", f"{thr:.3f}", f"{last_ok:.3f}")
+            )
+
+        # auto–show/hide tree scrollbar
+        total_rows   = len(self.tree.get_children())
+        visible_rows = int(self.tree['height'])
+        if total_rows > visible_rows:
+            self.score_vsb.grid()
+        else:
+            self.score_vsb.grid_remove()
+
+        # --- update the log console without always resetting its view ---
+        logs = list(self.debug_log_fn())   # ensure it's a list
+        # grab current scroll fraction (0.0=top … 1.0=bottom)
+        top_frac, _ = self.log_console.yview()
+
+        # repopulate
+        self.log_console.delete(0, tk.END)
+        for line in logs:
+            self.log_console.insert(tk.END, line)
+
+        # only auto-scroll if new lines were added
+        curr_len = len(logs)
+        if curr_len > self._last_log_len:
+            self.log_console.see(tk.END)
+        else:
+            # restore whatever fraction was showing before
+            self.log_console.yview_moveto(top_frac)
+        self._last_log_len = curr_len
+
+        # auto–show/hide log scrollbar
+        total_lines   = self.log_console.size()
+        visible_lines = int(self.log_console['height'])
+        if total_lines > visible_lines:
+            self.log_vsb.grid()
+        else:
+            self.log_vsb.grid_remove()
+
+        # schedule next update
+        self.after(50, self._refresh_debug)
 
     # ────────────────────────────────────────────────────────────────
     def _apply_delay(self):
@@ -204,7 +333,8 @@ class Tuner(tk.Tk):
         # update our own copy
         self.is_HDR = new_hdr
         # notify the bot to reload its templates
-        self.hdr_cb(new_hdr)
+        self.hdr_cb(new_hdr)            
+
         # and redraw the thumbnail in the GUI
         self._load_data()
 
@@ -223,39 +353,52 @@ class Tuner(tk.Tk):
             # hide panel
             self.DEBUG_PANEL.pack_forget()
             # shrink back
-            self.geometry(f"{self.base_width}x{self.winfo_height()}")
+            self.geometry(f"{self.base_width}x{self.winfo_height()}")            
+
+    def _toggle_text_skip(self):
+        # pull the new state out of the checkbox
+        sel = self.var_text_skip.get()
+        # update our own copy
+        self.text_skip = sel
+        self.text_skip_cb(sel)            
 
     def _toggle_thread_lux(self):
         sel = self.var_lux_thread.get()
         if sel:
-            # uncheck the other two
-            self.var_lux_EXP.set(False)
-            self.var_mirror_full_auto.set(False)
-            # notify their callbacks
-            self.lux_EXP_cb(False)
-            self.mirror_full_auto_cb(False)
+            if self.var_lux_EXP.get():
+                self.var_lux_EXP.set(False)
+                self.lux_EXP_cb(False)
+            if self.var_mirror_full_auto.get():
+                self.var_mirror_full_auto.set(False)
+                self.mirror_full_auto_cb(False)
         self.lux_thread = sel
         self.lux_thread_cb(sel)
 
     def _toggle_exp_lux(self):
         sel = self.var_lux_EXP.get()
         if sel:
-            self.var_lux_thread.set(False)
-            self.var_mirror_full_auto.set(False)
-            self.lux_thread_cb(False)
-            self.mirror_full_auto_cb(False)
+            if self.var_lux_thread.get():
+                self.var_lux_thread.set(False)
+                self.lux_thread_cb(False)
+            if self.var_mirror_full_auto.get():
+                self.var_mirror_full_auto.set(False)
+                self.mirror_full_auto_cb(False)          
         self.lux_EXP = sel
         self.lux_EXP_cb(sel)
 
     def _toggle_mirror_full_auto(self):
         sel = self.var_mirror_full_auto.get()
         if sel:
-            self.var_lux_thread.set(False)
-            self.var_lux_EXP.set(False)
-            self.lux_thread_cb(False)
-            self.lux_EXP_cb(False)
+            if self.var_lux_thread.get():
+                self.var_lux_thread.set(False)
+                self.lux_thread_cb(False)
+            if self.var_lux_EXP.get():
+                self.var_lux_EXP.set(False)
+                self.lux_EXP_cb(False)
         self.mirror_full_auto = sel
         self.mirror_full_auto_cb(sel)
+
+    PREVIEW_SIZE = (128, 128)
 
     def _load_data(self, *_):
         base, thr, roi = self.spec[self.var_name.get()]
@@ -283,17 +426,28 @@ class Tuner(tk.Tk):
 
         # now actually load and show
         try:
-            img = Image.open(img_path)
-            img.thumbnail((256,256), Image.LANCZOS)
-            self._photo = ImageTk.PhotoImage(img)
-            self.img_label.config(image=self._photo, text="")
-        except Exception as e:
-            # print(f"[Tuner] error loading preview for {base!r}: {e}")
-            if hasattr(self, "img_label"):
-                self.img_label.config(image="", text="No preview")
-            # else:
-            #     print(f"[Tuner] no img_label to show preview for {base!r}")
-            #     
+            raw = Image.open(img_path)
+        except Exception:
+            self.img_label.config(image="", text="No preview")
+            return
+
+        # thumbnail into our box
+        raw.thumbnail(self.PREVIEW_SIZE, Image.LANCZOS)
+
+        # create a transparent (or colored) background
+        bg = Image.new("RGBA", self.PREVIEW_SIZE, (0,0,0,0))
+
+        # compute offsets to center it
+        x_off = (self.PREVIEW_SIZE[0] - raw.width)  // 2
+        y_off = (self.PREVIEW_SIZE[1] - raw.height) // 2
+
+        # if raw has an alpha channel, use it as mask
+        mask = raw.split()[3] if raw.mode == "RGBA" else None
+        bg.paste(raw, (x_off, y_off), mask=mask)
+
+        # now hand it off to Tk
+        self._photo = ImageTk.PhotoImage(bg)
+        self.img_label.config(image=self._photo, text="")
 
     def _set_thr(self, *_):
         """
@@ -448,44 +602,6 @@ class Tuner(tk.Tk):
         canvas.bind("<B1-Motion>",     on_drag)
         canvas.bind("<ButtonRelease-1>", on_release)
 
-    # ── Debug panel refresher ─────────────────────────────────
-    def _refresh_debug(self):
-        if not self.var_debug.get():
-            return
-        scores   = self.debug_vals_fn()     # name → last raw score
-        passes   = self.debug_pass_fn()     # name → last passing score
-        # clear old rows
-        for iid in self.tree.get_children():
-            self.tree.delete(iid)
-        # repopulate
-        for name, (_, thr, _) in self.spec.items():
-            val     = scores.get(name, 0.0)
-            last_ok = passes.get(name, 0.0)
-            # include 'name' as the first column, then score, threshold, last pass
-            self.tree.insert("", "end",
-                values=(
-                    name,
-                    f"{val:.3f}",
-                    f"{thr:.3f}",
-                    f"{last_ok:.3f}"
-                )
-            )
-        log = self.debug_log_fn()   # coming from launch_gui
-        self.log_console.delete(0, "end")
-        for line in log:
-            self.log_console.insert("end", line)
-        # scroll to the bottom
-        self.log_console.yview("end")
-        # if the debug panel is open, keep refreshing it
-        if self.var_debug.get():
-            # if the bot is paused, don't refresh the debug panel
-            if not self.pause_event.is_set():
-                # schedule next update
-                self.after(100, self._refresh_debug)
-        else:
-            # if the debug panel is closed, stop refreshing it
-            self.after_cancel(self._refresh_debug)
-
 # ──────────────────────────────────────────────────────────────
 # module-level holder
 _tuner_instance: "Tuner | None" = None
@@ -501,19 +617,21 @@ def launch_gui(
     initial_delay_ms,
     initial_is_HDR,
     initial_debug,
-    delay_cb,               # fn: int -> None
-    hdr_cb,                 # fn: bool -> None
-    debug_cb,               # fn: bool -> None
-    debug_vals_fn,          # fn: None -> dict[name,score]
-    debug_pass_fn,          # fn: None -> dict[name,score]
-    debug_log_fn,          # fn: None -> list[str]
-    default_spec,           # your `DEFAULT_TEMPLATE_SPEC`
-    initial_lux_thread,     # bool
-    initial_lux_EXP,        # bool
+    delay_cb,                   # fn: int -> None
+    hdr_cb,                     # fn: bool -> None
+    debug_cb,                   # fn: bool -> None
+    debug_vals_fn,              # fn: None -> dict[name,score]
+    debug_pass_fn,              # fn: None -> dict[name,score]
+    debug_log_fn,               # fn: None -> list[str]
+    text_skip_cb,               # fn: bool -> None
+    initial_text_skip,          # bool
+    default_spec,               # your `DEFAULT_TEMPLATE_SPEC`
+    initial_lux_thread,         # bool
+    initial_lux_EXP,            # bool
     initial_mirror_full_auto,   # bool
-    lux_thread_cb,          # fn: bool -> None
-    lux_EXP_cb,             # fn: bool -> None
-    mirror_full_auto_cb     # fn: bool -> None
+    lux_thread_cb,              # fn: bool -> None
+    lux_EXP_cb,                 # fn: bool -> None
+    mirror_full_auto_cb         # fn: bool -> None
 ):
     import copy, threading
     orig = copy.deepcopy(template_spec)
@@ -534,6 +652,8 @@ def launch_gui(
             debug_vals_fn,
             debug_pass_fn,
             debug_log_fn,
+            text_skip_cb,
+            initial_text_skip,
             default_spec,
             initial_lux_thread,
             initial_lux_EXP,
