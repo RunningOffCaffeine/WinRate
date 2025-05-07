@@ -45,8 +45,8 @@ pyautogui.PAUSE    = 0.05 # 50 ms between actions
 pause_event = threading.Event()    # set by hotkey → pauses current run
 
 # ────────────────────────── ORB MATCHER SETUP ──────────────────────────
-# ORB detector (max 1000 keypoints) + Hamming brute-force matcher
-_orb   = cv2.ORB_create(nfeatures=1000)
+# ORB detector (max 100000 keypoints) + Hamming brute-force matcher
+_orb   = cv2.ORB_create(nfeatures=100000)
 _bf    = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 ORB_SCALE = 1000
 
@@ -83,61 +83,59 @@ def set_is_HDR(is_hdr: bool):
     if tuner:
         tuner.after(0, tuner._refresh_debug)
 
+def set_text_skip(skip: bool):
+    global text_skip
+    text_skip = skip
+    debug_log.append(f"Text skip {'enabled' if skip else 'disabled'}.")
+    _refresh_templates()
+    tuner = get_tuner()
+    if tuner:
+        tuner.var_text_skip.set(skip)
+
 def set_debug_mode(debug_mode: bool):
     global debug_flag, DEBUG_MATCH
     debug_flag = debug_mode
     DEBUG_MATCH = debug_mode
-    debug_log.append(f"Debug mode {'enabled' if DEBUG_MATCH else 'disabled'}.")
-    _refresh_templates() # reload templates
-    # poke the tuner to update right away
-    pyautogui.sleep(0.1) # give the GUI a moment to update
+    debug_log.append(f"Debug mode {'enabled' if debug_mode else 'disabled'}.")
+    _refresh_templates()
     tuner = get_tuner()
     if tuner:
-        tuner.after(0, tuner._refresh_debug)
-
-def set_text_skip(skip: bool):
-    global text_skip
-    text_skip = skip
-    debug_log.append(f"Text skip {'enabled' if text_skip else 'disabled'}.")
-    _refresh_templates() # reload templates
-    # poke the tuner to update right away
-    pyautogui.sleep(0.1) # give the GUI a moment to update
-    tuner = get_tuner()
-    if tuner:
-        tuner.after(0, tuner._refresh_debug)
+        tuner.var_debug.set(debug_mode)
+        # optionally re–show or hide the panel:
+        if debug_mode:
+            tuner.DEBUG_PANEL.pack(side="right", fill="y", padx=(8,0))
+            tuner._refresh_debug()
+        else:
+            tuner.DEBUG_PANEL.pack_forget()
 
 def set_lux_thread(lux_thr: bool):
     global lux_thread
     lux_thread = lux_thr
     debug_log.append(f"Thread Luxcavation {'enabled' if lux_thread else 'disabled'}.")
-    _refresh_templates() # reload templates
-    # poke the tuner to update right away
-    pyautogui.sleep(0.1) # give the GUI a moment to update
+    _refresh_templates()
+
+    # make the GUI checkbox reflect the new state:
     tuner = get_tuner()
     if tuner:
-        tuner.after(0, tuner._refresh_debug)
+        tuner.var_lux_thread.set(lux_thr)
 
 def set_lux_exp(lux_exp: bool):
     global lux_EXP
     lux_EXP = lux_exp
     debug_log.append(f"EXP Luxcavation {'enabled' if lux_EXP else 'disabled'}.")
-    _refresh_templates() # reload templates
-    # poke the tuner to update right away
-    pyautogui.sleep(0.1) # give the GUI a moment to update
+    _refresh_templates()
     tuner = get_tuner()
     if tuner:
-        tuner.after(0, tuner._refresh_debug)
+        tuner.var_lux_EXP.set(lux_exp)
 
 def set_full_auto_mirror(full_auto: bool):
     global full_auto_mirror
     full_auto_mirror = full_auto
     debug_log.append(f"Full auto mirror {'enabled' if full_auto else 'disabled'}.")
-    _refresh_templates() # reload templates
-    # poke the tuner to update right away
-    pyautogui.sleep(0.1) # give the GUI a moment to update
+    _refresh_templates()
     tuner = get_tuner()
     if tuner:
-        tuner.after(0, tuner._refresh_debug)
+        tuner.var_mirror_full_auto.set(full_auto)
 
 # ───────────────────────── Template metadata ───────────────────────────
 Tmpl = namedtuple("Tmpl", "img mask thresh roi kp des")    # roi == (x, y, w, h) or None
