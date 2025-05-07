@@ -1,35 +1,40 @@
 @echo off
-REM ────────────────────────────────────────────────────────────────────
-REM build.bat  → builds Limbus_Auto_Bot.exe, bundling all .png files
-REM ────────────────────────────────────────────────────────────────────
+setlocal
 
-REM 1) Make sure PyInstaller is on PATH (install if missing)
-where pyinstaller >nul 2>&1
-if ERRORLEVEL 1 (
-    echo PyInstaller not found. Installing...
-    pip install pyinstaller
+rem ── Adjust this if your Python 3.13 path is different ────────────────
+set "PYTHON_DIR=%UserProfile%\AppData\Local\Programs\Python\Python313"
+if not exist "%PYTHON_DIR%\python.exe" (
+  echo ERROR: Python not found at "%PYTHON_DIR%\python.exe"
+  pause
+  exit /b 1
 )
 
-REM 2) Locate this script’s folder
-set "BASEDIR=%~dp0"
+rem ── Make sure we use Python 3.13’s pip & PyInstaller ──────────────────
+set "PATH=%PYTHON_DIR%;%PYTHON_DIR%\Scripts;%PATH%"
 
-REM 3) Build with --add-data to include every PNG in the same folder
-echo Building Limbus_Auto_Bot.exe (this may take a minute...)
-pyinstaller ^
-    --clean ^
-    --onefile ^
-    --name "Limbus Auto Bot" ^
-    --add-data "%BASEDIR%*.png;." ^
-    "%BASEDIR%winrate.py"
+rem ── Clean out any previous build artifacts ──────────────────────────
+if exist build rd /s /q build
+if exist dist  rd /s /q dist
+if exist winrate.spec del winrate.spec
 
-if ERRORLEVEL 1 (
-    echo.
-    echo *** Build FAILED ***
-    pause
-    exit /b 1
+rem ── Build a one‐file console EXE from winrate.py ─────────────────────
+echo Building winrate.py -> WinRate.exe ...
+python -m PyInstaller ^
+    --noconfirm ^
+    --clean    ^
+    --onefile  ^
+    --console  ^
+    --name WinRate  ^
+    winrate.py
+
+if errorlevel 1 (
+  echo.
+  echo BUILD FAILED.
+  pause
+  exit /b 1
 )
 
 echo.
-echo *** Build SUCCEEDED ***
-echo Your EXE is in: dist\Limbus_Auto_Bot.exe
+echo BUILD SUCCEEDED!  Executable is at dist\WinRate.exe
 pause
+endlocal
