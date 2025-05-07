@@ -40,51 +40,17 @@ else:
 
 # ───────────────────────── Runtime safety ──────────────────────────────
 pyautogui.FAILSAFE = True
-pyautogui.PAUSE    = 0.01 # 10 ms between actions
+pyautogui.PAUSE    = 0.05 # 50 ms between actions
 
 pause_event = threading.Event()    # set by hotkey → pauses current run
 
+# ────────────────────────── ORB MATCHER SETUP ──────────────────────────
+# ORB detector (max 1000 keypoints) + Hamming brute-force matcher
+_orb   = cv2.ORB_create(nfeatures=1000)
+_bf    = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+ORB_SCALE = 1000
+
 # ─────────────────────── user-configurable settings ────────────────────
-# moved to GUI
-# try:
-#     delay_ms = int(input("Frame-grab interval in ms (default 50, min 10): ") or 50)
-#     if delay_ms < 10:
-#         raise ValueError("Minimum delay is 10 ms.")
-#     else:
-#         print(f"Frame-grab interval set to {delay_ms} ms")
-#         pass
-#     print(f"Frame-grab interval set to {delay_ms} ms")
-# except ValueError:
-#     delay_ms = 50
-#     print("Defaulting to 50 ms.")
-
-# CHECK_INTERVAL = max(delay_ms, 10) / 1000.0   # never < 10 ms
-# last_grab      = 0.0
-
-# try:
-#     hdr_flag = input("Is the game in HDR mode? [t/f] (default f): ").strip().lower()
-#     is_HDR = (hdr_flag == 't')
-#     if is_HDR:
-#         print("Mode == HDR")
-#     else:
-#         print("Mode == SDR")
-# except ValueError:
-#     is_HDR = False
-#     print("Defaulting to SDR mode.")
-
-# try:
-#     debug_flag = input("Print Debug Thresholds? [t/f] (default f): ").strip().lower()
-#     DEBUG_MATCH = (debug_flag == 't')
-#     if DEBUG_MATCH:
-#         DEBUG_MATCH = True
-#         print("Debug mode enabled.")
-#     else:
-#         DEBUG_MATCH = False
-#         print("Debug mode disabled.")
-# except ValueError:
-#     DEBUG_MATCH = False
-#     print("Defaulting to Debug mode disabled.")
-
 delay_ms = 50
 is_HDR = False
 debug_flag = False
@@ -112,6 +78,7 @@ def set_is_HDR(is_hdr: bool):
     debug_log.append(f"Mode == {'HDR' if is_HDR else 'SDR'}.")
     _refresh_templates() # reload templates
     # poke the tuner to update right away
+    pyautogui.sleep(0.1) # give the GUI a moment to update
     tuner = get_tuner()
     if tuner:
         tuner.after(0, tuner._refresh_debug)
@@ -123,6 +90,7 @@ def set_debug_mode(debug_mode: bool):
     debug_log.append(f"Debug mode {'enabled' if DEBUG_MATCH else 'disabled'}.")
     _refresh_templates() # reload templates
     # poke the tuner to update right away
+    pyautogui.sleep(0.1) # give the GUI a moment to update
     tuner = get_tuner()
     if tuner:
         tuner.after(0, tuner._refresh_debug)
@@ -133,6 +101,7 @@ def set_text_skip(skip: bool):
     debug_log.append(f"Text skip {'enabled' if text_skip else 'disabled'}.")
     _refresh_templates() # reload templates
     # poke the tuner to update right away
+    pyautogui.sleep(0.1) # give the GUI a moment to update
     tuner = get_tuner()
     if tuner:
         tuner.after(0, tuner._refresh_debug)
@@ -143,6 +112,7 @@ def set_lux_thread(lux_thr: bool):
     debug_log.append(f"Thread Luxcavation {'enabled' if lux_thread else 'disabled'}.")
     _refresh_templates() # reload templates
     # poke the tuner to update right away
+    pyautogui.sleep(0.1) # give the GUI a moment to update
     tuner = get_tuner()
     if tuner:
         tuner.after(0, tuner._refresh_debug)
@@ -153,6 +123,7 @@ def set_lux_exp(lux_exp: bool):
     debug_log.append(f"EXP Luxcavation {'enabled' if lux_EXP else 'disabled'}.")
     _refresh_templates() # reload templates
     # poke the tuner to update right away
+    pyautogui.sleep(0.1) # give the GUI a moment to update
     tuner = get_tuner()
     if tuner:
         tuner.after(0, tuner._refresh_debug)
@@ -163,12 +134,13 @@ def set_full_auto_mirror(full_auto: bool):
     debug_log.append(f"Full auto mirror {'enabled' if full_auto else 'disabled'}.")
     _refresh_templates() # reload templates
     # poke the tuner to update right away
+    pyautogui.sleep(0.1) # give the GUI a moment to update
     tuner = get_tuner()
     if tuner:
         tuner.after(0, tuner._refresh_debug)
 
 # ───────────────────────── Template metadata ───────────────────────────
-Tmpl = namedtuple("Tmpl", "img mask thresh roi")    # roi == (x, y, w, h) or None
+Tmpl = namedtuple("Tmpl", "img mask thresh roi kp des")    # roi == (x, y, w, h) or None
 
 # name                      : (basename-no-suffix,     threshold,                            roi)
 TEMPLATE_SPEC = {
@@ -211,6 +183,7 @@ TEMPLATE_SPEC = {
     # "encounter_reward_10": ("Encounter Reward Rank 10",    0.80,       (0.50, 0.50, 0.50, 0.50)),
     "mirror_dungeon"     : ("Mirror Dungeon",              0.70,       (0.25, 0.35, 0.20, 0.25)),
     "mirror_enter"       : ("Mirror Enter",                0.80,       (0.65, 0.60, 0.35, 0.20)),
+    # "mirror_theme"       : ("Mirror Theme",                0.80,       (0.50, 0.50, 0.50, 0.50)),
     #other MD images
     "luxcavations"       : ("Luxcavations",                0.80,       (0.22, 0.08, 0.25, 0.40)),
     "select_exp_lux"     : ("Select EXP Lux",              0.80,       (0.04, 0.30, 0.15, 0.12)),
@@ -237,7 +210,7 @@ def resource_path(fname: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), fname)
 
 def load_templates() -> dict[str, Tmpl]:
-    """Load images → grayscale + optional mask, verify files exist."""
+    """Load images → grayscale + optional mask + ORB features."""
     suffix = {True: " HDR.png", False: " SDR.png"}[is_HDR]
     out: dict[str, Tmpl] = {}
 
@@ -259,8 +232,13 @@ def load_templates() -> dict[str, Tmpl]:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             mask = None
 
+        # equalize to improve contrast
         gray = cv2.equalizeHist(gray)
-        out[name] = Tmpl(gray, mask, thresh, roi)
+
+        # detect ORB features on the template
+        kp, des = _orb.detectAndCompute(gray, mask)
+
+        out[name] = Tmpl(gray, mask, thresh, roi, kp, des)
 
     return out
 
@@ -279,49 +257,78 @@ debug_log: list[str] = []
 def best_match(screen_gray: np.ndarray, tmpl: Tmpl, *, label: str = ""):
     global last_vals, last_pass
 
-    # unpack roi (could be None or a 4‐tuple)
+    # 1) Extract and crop to ROI
     if tmpl.roi:
-        x, y, w, h = tmpl.roi
-        H, W = screen_gray.shape
-        # if fractional, convert to pixels
-        if any(isinstance(v, float) and v <= 1.0 for v in (x, y, w, h)):
-            x, y, w, h = int(x*W), int(y*H), int(w*W), int(h*H)
+        x,y,w,h = tmpl.roi
+        H,W = screen_gray.shape
+        if any(isinstance(v,float) and v<=1 for v in (x,y,w,h)):
+            x,y,w,h = int(x*W), int(y*H), int(w*W), int(h*H)
         region = screen_gray[y:y+h, x:x+w]
     else:
-        region = screen_gray
-        x = y = 0
+        region = screen_gray; x=y=0
 
-    rh, rw = region.shape
-    th, tw = tmpl.img.shape
+    rh,rw = region.shape
+    th,tw = tmpl.img.shape
+    key   = label or next(k for k,v in TEMPLATES.items() if v is tmpl)
 
-    # if the region is too small, skip
-    key = label or next(k for k,v in TEMPLATES.items() if v is tmpl)
+    # 2) Skip if too small for template
     if rh < th or rw < tw:
         last_vals[key] = 0.0
         return None
 
-    # optional: histogram equalize for better contrast
-    region_eq   = cv2.equalizeHist(region)
-    template_eq = cv2.equalizeHist(tmpl.img)
+    # 3) ORB: equalize region, compute descriptors
+    region_eq = cv2.equalizeHist(region)
+    kp2, des2 = _orb.detectAndCompute(region_eq, None)
+    if des2 is None or len(des2) < 4:
+        return _tm_fallback(region, x, y, tmpl, key)
 
-    # match
-    res = cv2.matchTemplate(region_eq, template_eq, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(res)
+    # 4) match descriptors with Lowe’s ratio test
+    raw = _bf.knnMatch(tmpl.des, des2, k=2)
+    good = [m for m,n in raw if m.distance < 0.75*n.distance]
+    if len(good) < 4:
+        return _tm_fallback(region, x, y, tmpl, key)
 
-    # record raw score
-    last_vals[key] = max_val
+    # 5) try RANSAC homography
+    src = np.float32([tmpl.kp[m.queryIdx].pt for m in good]).reshape(-1,1,2)
+    dst = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1,1,2)
+    try:
+        M, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+    except cv2.error:
+        return _tm_fallback(region, x, y, tmpl, key)
 
-    if max_val < tmpl.thresh:
+    if mask is None:
+        return _tm_fallback(region, x, y, tmpl, key)
+
+    inliers = int(mask.sum())
+    if inliers < 4:
+        return _tm_fallback(region, x, y, tmpl, key)
+
+    # 6) build ORB score and record
+    score = inliers / max(1, len(tmpl.kp))
+    last_vals[key] = score
+
+    # 7) threshold test
+    if score < tmpl.thresh:
         return None
 
-    # record last passing score
-    last_pass[key] = max_val
-    debug_log.append(f"{key}: {max_val:.3f}")
+    # 8) success!
+    last_pass[key] = score
+    return _tm_center(region, x, y, tmpl)
 
-    # return center‐of‐match in full‐screen coords
-    cx = x + max_loc[0] + tw//2
-    cy = y + max_loc[1] + th//2
-    return (cx, cy)
+def _tm_center(region, x, y, tmpl):
+    res = cv2.matchTemplate(region, tmpl.img, cv2.TM_CCOEFF_NORMED)
+    _, _, _, max_loc = cv2.minMaxLoc(res)
+    tw, th = tmpl.img.shape[::-1]
+    return (x + max_loc[0] + tw//2, y + max_loc[1] + th//2)
+
+def _tm_fallback(region, x, y, tmpl, key):
+    res = cv2.matchTemplate(region, tmpl.img, cv2.TM_CCOEFF_NORMED)
+    _, mx, _, _ = cv2.minMaxLoc(res)
+    last_vals[key] = mx
+    if mx < tmpl.thresh:
+        return None
+    last_pass[key] = mx
+    return _tm_center(region, x, y, tmpl)
 
 def click(pt, label=None, hold_ms=0):
     # if label:
@@ -434,6 +441,7 @@ def limbus_bot():
                 keyboard.press_and_release("p")
                 time.sleep(0.25)
                 keyboard.press_and_release("enter")
+                time.sleep(0.25)
 
                 need_refresh = True
 
@@ -498,7 +506,7 @@ def limbus_bot():
 
             elif ego_get_overlay:
                 debug_log.append("[3-4] EGO Gift Recieved – running…")
-                # # Move pointer to a clear spot: centre-x, 80% down
+                # # Move pointer to a clear spot: center-x, 80% down
                 # h, w = screen_gray.shape
                 # pyautogui.moveTo(w // 2, int(h * 0.75))
                 # pyautogui.click()
@@ -624,42 +632,39 @@ def limbus_bot():
             # A) Thread Luxcavation automation
             if lux_thread:
                 # 1) select Drive
+                screen_gray = refresh_screen()
                 drive_pt = best_match(screen_gray, TEMPLATES["drive"])
                 debug_log.append("[A-1] Drive check")
                 if drive_pt is not None:
                     click(drive_pt, "Drive → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(1.0)
 
                 # 2) enter Luxcavations mode
+                screen_gray = refresh_screen()
                 lux_pt = best_match(screen_gray, TEMPLATES["luxcavations"])
                 debug_log.append("[A-2] Luxcavations check")
                 if lux_pt is not None:
                     click(lux_pt, "Luxcavations → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(1.0)
 
                 # 3) select Thread Lux
+                screen_gray = refresh_screen()
                 thr_pt = best_match(screen_gray, TEMPLATES["select_thread_lux"])
                 debug_log.append("[A-3] Select Thread Lux check")
                 if thr_pt is not None:
                     click(thr_pt, "Select Thread Lux → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(1.0)
 
                 # 4) hit the Enter button
+                screen_gray = refresh_screen()
                 enter_pt = best_match(screen_gray, TEMPLATES["lux_enter"])
                 debug_log.append("[A-4] Lux Enter check")
                 if enter_pt is not None:
                     click(enter_pt, "Lux Enter → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(1.0)
 
                 # 5) choose the best battle
+                screen_gray = refresh_screen()
                 battle_pts = best_match(screen_gray, TEMPLATES["thread_lux_battle"])
                 battle_pt = None
                 debug_log.append("[A-5] Thread Lux Battle check")
@@ -671,17 +676,14 @@ def limbus_bot():
                     battle_pt = battle_pts
                 if battle_pt is not None:
                     click(battle_pt, "Thread Lux Battle Select → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(1.0)
 
                 # 6) To Battle button
+                screen_gray = refresh_screen()
                 battle_pt = best_match(screen_gray, TEMPLATES["battle"])
                 debug_log.append("[A-6] To Battle check")
                 if battle_pt is not None:
                     click(battle_pt, "To Battle → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
                     time.sleep(2.0)
 
                 # 7) Set back to false, run main loop
@@ -696,29 +698,26 @@ def limbus_bot():
                 debug_log.append("[B-1] Drive check")
                 if drive_pt is not None:
                     click(drive_pt, "Drive → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(1.0)
 
                 # 2) enter Luxcavations mode
+                screen_gray = refresh_screen()
                 lux_pt = best_match(screen_gray, TEMPLATES["luxcavations"])
                 debug_log.append("[B-2] Luxcavations check")
                 if lux_pt is not None:
                     click(lux_pt, "Luxcavations → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(1.0)
 
                 # 3) select EXP Lux
+                screen_gray = refresh_screen()
                 exp_pt = best_match(screen_gray, TEMPLATES["select_exp_lux"])
                 debug_log.append("[B-3] Select EXP Lux check")
                 if exp_pt is not None:
                     click(exp_pt, "Select EXP Lux → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(1.0)
 
                 # 4) choose which “Enter” to click (if multiple, pick the rightmost)
+                screen_gray = refresh_screen()
                 enter_pts = best_match(screen_gray, TEMPLATES["exp_lux_enter"])
                 enter_pt = None
                 debug_log.append("[B-4] EXP Lux Enter check")
@@ -726,26 +725,20 @@ def limbus_bot():
                     # sort by x descending and pick the first
                     enter_pts.sort(key=lambda p: p[0], reverse=True)
                     enter_pt = enter_pts[0]
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+
                 elif enter_pts is not None:
                     enter_pt = enter_pts
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
 
                 if enter_pt is not None:
                     click(enter_pt, "EXP Lux Enter → click", hold_ms=10)
-                    time.sleep(0.5)
-                    screen_gray = refresh_screen()
-                    time.sleep(CHECK_INTERVAL)
+                    time.sleep(1.0)
 
                 # 5) Enter the battle
+                screen_gray = refresh_screen()
                 battle_pt = best_match(screen_gray, TEMPLATES["battle"])
                 debug_log.append("[B-5] To Battle check")
                 if battle_pt is not None:
                     click(battle_pt, "To Battle → click", hold_ms=10)
-                    time.sleep(0.25)
-                    screen_gray = refresh_screen()
                     time.sleep(2.0)
                 
                 # 6) Set back to false, run main loop
@@ -755,25 +748,54 @@ def limbus_bot():
 
 
             # # needs images, will get when mirror dungeon resets again
-            # C) Full Auto Mirror Dungeon
-            if full_auto_mirror:
-                # step-by-step: Drive → Mirror Dungeon → Mirror Enter [List is reversed]
-                for key, label in [
-                    ("mirror_enter",    "Mirror Enter → click"),
-                    ("mirror_dungeon",  "Mirror Dungeon → click"),
-                    ("drive",           "Drive → click"),
-                ]:
-                    screen_gray = refresh_screen()
-                    pt = best_match(screen_gray, TEMPLATES[key])
-                    debug_log.append(f"[C] Auto Mirror {key} check")
-                    if pt:
-                        click(pt, label, hold_ms=10)
-                        time.sleep(0.25)
-                        screen_gray = refresh_screen()
-                    else:
-                        # if we couldn't find one of those buttons, bail out
-                        need_refresh = True
-                        continue
+            # # C) Full Auto Mirror Dungeon
+            # if full_auto_mirror:
+            #     # step-by-step: Drive → Mirror Dungeon → Mirror Enter [List is reversed]
+            #     if (pt := best_match(screen_gray, TEMPLATES["drive"])):
+            #         debug_log.append("[C-1] Drive check")
+            #         click(pt, "Drive → click", hold_ms=10)
+            #         time.sleep(CHECK_INTERVAL)
+            #         screen_gray = refresh_screen()
+            #         need_refresh = True
+            #     if (pt := best_match(screen_gray, TEMPLATES["mirror_dungeon"])):
+            #         debug_log.append("[C-2] Mirror Dungeon check")
+            #         click(pt, "Mirror Dungeon → click", hold_ms=10)
+            #         time.sleep(CHECK_INTERVAL)
+            #         screen_gray = refresh_screen()
+            #         need_refresh = True
+            #     if (pt := best_match(screen_gray, TEMPLATES["mirror_enter"])):
+            #         debug_log.append("[C-3] Mirror Enter check")
+            #         click(pt, "Mirror Enter → click", hold_ms=10)
+            #         time.sleep(CHECK_INTERVAL)
+            #         screen_gray = refresh_screen()
+            #         need_refresh = True
+                # check for stage
+                # if (pt := best_match(screen_gray, TEMPLATES["mirror_stage"])):
+                #     debug_log.append("[C-4] Extering Next Stage")
+                #     click(pt, "Mirror Stage → click", hold_ms=10)
+                #     time.sleep(CHECK_INTERVAL)
+                #     screen_gray = refresh_screen()
+                #     need_refresh = True
+                #
+                # leave store
+                # if (pt := best_match(screen_gray, TEMPLATES["mirror_store"])):
+                #     debug_log.append("[C-5] Entering Store")
+                #     click(pt, "Mirror Store → click", hold_ms=10)
+                #     time.sleep(CHECK_INTERVAL)
+                #     screen_gray = refresh_screen()
+                #     need_refresh = True
+                #
+                # check for theme pack
+                # if (pt := best_match(screen_gray, TEMPLATES["mirror_theme"])):
+                #     debug_log.append("[C-6] Entering Theme Pack")
+                #     click(pt, "Mirror Theme Pack → click", hold_ms=10)
+                #     time.sleep(CHECK_INTERVAL)
+                #     screen_gray = refresh_screen()
+                #     need_refresh = True
+                #
+                # 
+
+
             # if full_auto_mirror:
             #     # auto select next path, ego gift rewards, encounter rewards
             #     gifts = best_match(screen_gray, TEMPLATES["reward"])

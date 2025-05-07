@@ -11,12 +11,40 @@ Live-tuning GUI for Limbus bot
   last match-score and its threshold.
 """
 
-import tkinter as tk
-from tkinter import ttk
-from PIL import Image, ImageTk
-import threading, time, os
-import json
-import copy
+# ── std-lib imports ───────────────────────────────────────────────────
+import os, threading, time, sys, json
+from collections import namedtuple
+
+# ── auto-installer for third-party packages ───────────────────────────
+def _require(pkg, import_as=None, pypi_name=None):
+    import importlib, subprocess, sys
+    name = pypi_name or pkg
+    try:
+        return importlib.import_module(pkg if import_as is None else import_as)
+    except ModuleNotFoundError:
+        print(f"[setup] installing '{name}' …")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", name])
+        return importlib.import_module(pkg if import_as is None else import_as)
+
+# ── pull in all non-stdlib deps ───────────────────────────────────────
+if getattr(sys, 'frozen', False):
+    # running from a PyInstaller bundle
+    import cv2, numpy as np, pyautogui, keyboard, pygetwindow as gw, mss
+    from PIL import Image, ImageTk
+    import tkinter as tk
+    from tkinter import ttk
+else:
+    cv2       = _require("cv2",        pypi_name="opencv-python")
+    np        = _require("numpy")
+    pyautogui = _require("pyautogui")
+    keyboard  = _require("keyboard")
+    gw        = _require("pygetwindow", import_as="pygetwindow")
+    mss       = _require("mss")
+    # fix here: install Pillow but import PIL
+    _require("PIL",  pypi_name="Pillow")
+    from PIL import Image, ImageTk
+    import tkinter as tk
+    from tkinter import ttk
 
 # ──────────────────────────────────────────────────────────────────────
 class Tuner(tk.Tk):
