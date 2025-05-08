@@ -71,14 +71,16 @@ def set_delay_ms(ms: int):
     delay_ms = max(ms, 10)  # never < 10 ms
     CHECK_INTERVAL = delay_ms / 1000.0
     debug_log.append(f"Frame-grab interval set to {delay_ms} ms.")
+    _refresh_templates() # reload templates
+    tuner = get_tuner()
+    if tuner:
+        tuner.var_delay.set(delay_ms)
 
 def set_is_HDR(is_hdr: bool):
     global is_HDR
     is_HDR = is_hdr
     debug_log.append(f"Mode == {'HDR' if is_HDR else 'SDR'}.")
     _refresh_templates() # reload templates
-    # poke the tuner to update right away
-    pyautogui.sleep(0.1) # give the GUI a moment to update
     tuner = get_tuner()
     if tuner:
         tuner.after(0, tuner._refresh_debug)
@@ -138,7 +140,7 @@ def set_full_auto_mirror(full_auto: bool):
         tuner.var_mirror_full_auto.set(full_auto)
 
 # ───────────────────────── Template metadata ───────────────────────────
-Tmpl = namedtuple("Tmpl", "img mask thresh roi kp des")    # roi == (x, y, w, h) or None
+Tmpl = namedtuple("Tmpl", "imgs masks thresh roi")    # roi == (x, y, w, h) or None
 
 # name                      : (basename-no-suffix,     threshold,                            roi)
 TEMPLATE_SPEC = {
@@ -160,29 +162,45 @@ TEMPLATE_SPEC = {
     "commence"           : ("Commence",                    0.80,       (0.50, 0.70, 0.50, 0.30)),
     "commence_battle"    : ("Commence Battle",             0.80,       (0.50, 0.70, 0.50, 0.30)),
     "continue"           : ("Continue",                    0.80,       (0.50, 0.70, 0.50, 0.30)),
-    # "reward"             : ("Reward",                      0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward"   : ("Encounter Reward",            0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "next_encounter"     : ("Encounter",                   0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "shop_skip"          : ("Skip Shop",                   0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # # Full Auto Mirror Dungeon
+    # "mirror_dungeon"     : ("Mirror Dungeon",              0.70,       (0.25, 0.35, 0.20, 0.25)),
+    # "mirror_enter"       : ("Mirror Enter",                0.80,       (0.65, 0.60, 0.35, 0.20)),
+    # # "mirror_theme"       : ("Mirror Theme",                0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # # Abno. Events
+    # "abno_choice_check"  : ("Abnormality Choice Check",    0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "abno_level"         : ("Abnormality Level",           0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "abno_earn"          : ("Abnormality Earn",            0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # "abno_gain"          : ("Abnormality Gain",            0.80,       (0.50, 0.50, 0.50, 0.50)),
+    # # Encounter Rewards
+    # "ego_gift_choice"    : ("EGO Gift Choice",             0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "gift_reward_1"      : ("Gift Reward Rank 1",          0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "gift_reward_2"      : ("Gift Reward Rank 2",          0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "gift_reward_3"      : ("Gift Reward Rank 3",          0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "gift_reward_4"      : ("Gift Reward Rank 4",          0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward"   : ("Encounter Reward",            0.80,       (0.15, 0.15, 0.55, 0.15)),
+    # "encounter_reward_1" : ("Encounter Reward Rank 1",     0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward_2" : ("Encounter Reward Rank 2",     0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward_3" : ("Encounter Reward Rank 3",     0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward_4" : ("Encounter Reward Rank 4",     0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward_5" : ("Encounter Reward Rank 5",     0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward_6" : ("Encounter Reward Rank 6",     0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward_7" : ("Encounter Reward Rank 7",     0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward_8" : ("Encounter Reward Rank 8",     0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward_9" : ("Encounter Reward Rank 9",     0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # "encounter_reward_10": ("Encounter Reward Rank 10",    0.80,       (0.15, 0.15, 0.70, 0.50)),
+    # # Mirror Dungeon Stages
+    # "md_sword"           : ("MD Sword",                    0.80,       (0.50, 0.00, 0.20, 0.80)),
+    # "md_twosword"        : ("MD Two Sword",                0.80,       (0.50, 0.00, 0.20, 0.80)),
+    # "md_coin"            : ("MD Coin",                     0.80,       (0.50, 0.00, 0.20, 0.80)),
+    # "md_question"        : ("MD Question",                 0.80,       (0.50, 0.00, 0.20, 0.80)),
+    # "md_ex_question"     : ("MD Exclamation",              0.80,       (0.50, 0.00, 0.20, 0.80)),
+    # "md_monster"         : ("MD Monster",                  0.80,       (0.50, 0.00, 0.20, 0.80)),
+    # "md_abno"            : ("MD Abnormality",              0.80,       (0.50, 0.00, 0.20, 0.80)),
+    # "md_boss"            : ("MD Boss",                     0.80,       (0.50, 0.00, 0.20, 0.80)),
+    # "md_shop"            : ("MD Shop",                     0.80,       (0.50, 0.00, 0.20, 0.80)),
+    # "md_supershop"       : ("MD Super Shop",               0.80,       (0.50, 0.00, 0.20, 0.80)),
     # "leave"              : ("Leave",                       0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "gift_reward_1"      : ("Gift Reward Rank 1",          0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "gift_reward_2"      : ("Gift Reward Rank 2",          0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "gift_reward_3"      : ("Gift Reward Rank 3",          0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "gift_reward_4"      : ("Gift Reward Rank 4",          0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_1" : ("Encounter Reward Rank 1",     0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_2" : ("Encounter Reward Rank 2",     0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_3" : ("Encounter Reward Rank 3",     0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_4" : ("Encounter Reward Rank 4",     0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_5" : ("Encounter Reward Rank 5",     0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_6" : ("Encounter Reward Rank 6",     0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_7" : ("Encounter Reward Rank 7",     0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_8" : ("Encounter Reward Rank 8",     0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_9" : ("Encounter Reward Rank 9",     0.80,       (0.50, 0.50, 0.50, 0.50)),
-    # "encounter_reward_10": ("Encounter Reward Rank 10",    0.80,       (0.50, 0.50, 0.50, 0.50)),
-    "mirror_dungeon"     : ("Mirror Dungeon",              0.70,       (0.25, 0.35, 0.20, 0.25)),
-    "mirror_enter"       : ("Mirror Enter",                0.80,       (0.65, 0.60, 0.35, 0.20)),
-    # "mirror_theme"       : ("Mirror Theme",                0.80,       (0.50, 0.50, 0.50, 0.50)),
-    #other MD images
+    # Auto Luxcavations
     "luxcavations"       : ("Luxcavations",                0.80,       (0.22, 0.08, 0.25, 0.40)),
     "select_exp_lux"     : ("Select EXP Lux",              0.80,       (0.04, 0.30, 0.15, 0.12)),
     "select_thread_lux"  : ("Select Thread Lux",           0.80,       (0.04, 0.40, 0.15, 0.12)),
@@ -208,37 +226,51 @@ def resource_path(fname: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), fname)
 
 def load_templates() -> dict[str, Tmpl]:
-    """Load images → grayscale + optional mask + ORB features."""
-    suffix = {True: " HDR.png", False: " SDR.png"}[is_HDR]
+    """Load both HDR and SDR (plus fallback) for every template."""
     out: dict[str, Tmpl] = {}
 
     for name, (base, thresh, roi) in TEMPLATE_SPEC.items():
-        file = base + suffix
-        if not os.path.isfile(resource_path(file)):
-            file = base + ".png"
+        imgs: list[np.ndarray] = []
+        masks: list[np.ndarray|None] = []
 
-        img = cv2.imread(resource_path(file), cv2.IMREAD_UNCHANGED)
-        if img is None:
-            raise FileNotFoundError(f"Template not found: {file}")
+        # try HDR then SDR
+        for suffix in (" HDR.png", " SDR.png"):
+            path = resource_path(base + suffix)
+            if os.path.isfile(path):
+                img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+                # split off alpha channel if present
+                if img.shape[2] == 4:
+                    bgr, alpha = img[:, :, :3], img[:, :, 3]
+                    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+                    mask = (alpha > 0).astype(np.uint8)
+                else:
+                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                    mask = None
+                gray = cv2.equalizeHist(gray)
+                imgs.append(gray)
+                masks.append(mask)
 
-        # split off alpha channel (if present)
-        if img.shape[2] == 4:
-            bgr, alpha = img[:, :, :3], img[:, :, 3]
-            gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-            mask = (alpha > 0).astype(np.uint8)
-        else:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            mask = None
+        # if neither HDR nor SDR found, fall back to base.png
+        if not imgs:
+            path = resource_path(base + ".png")
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"Template not found: {base}.png")
+            img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+            if img.shape[2] == 4:
+                bgr, alpha = img[:, :, :3], img[:, :, 3]
+                gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+                mask = (alpha > 0).astype(np.uint8)
+            else:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                mask = None
+            gray = cv2.equalizeHist(gray)
+            imgs.append(gray)
+            masks.append(mask)
 
-        # equalize to improve contrast
-        gray = cv2.equalizeHist(gray)
-
-        # detect ORB features on the template
-        kp, des = _orb.detectAndCompute(gray, mask)
-
-        out[name] = Tmpl(gray, mask, thresh, roi, kp, des)
+        out[name] = Tmpl(imgs, masks, thresh, roi)
 
     return out
+
 
 TEMPLATES = load_templates()
 
@@ -253,65 +285,60 @@ def active_window_title() -> str:
 debug_log: list[str] = []
 
 def best_match(screen_gray: np.ndarray, tmpl: Tmpl, *, label: str = ""):
+    """
+    Try every variant in tmpl.imgs (HDR + SDR), pick the best match.
+    Return centre-of-match or None.
+    """
     global last_vals, last_pass
 
-    # 1) Extract and crop to ROI
+    # 1) Extract ROI
     if tmpl.roi:
-        x,y,w,h = tmpl.roi
-        H,W = screen_gray.shape
-        if any(isinstance(v,float) and v<=1 for v in (x,y,w,h)):
-            x,y,w,h = int(x*W), int(y*H), int(w*W), int(h*H)
+        x, y, w, h = tmpl.roi
+        H, W = screen_gray.shape
+        # fractional → pixels
+        if any(isinstance(v, float) and v <= 1.0 for v in (x, y, w, h)):
+            x, y, w, h = int(x * W), int(y * H), int(w * W), int(h * H)
         region = screen_gray[y:y+h, x:x+w]
     else:
-        region = screen_gray; x=y=0
+        x = y = 0
+        region = screen_gray
 
-    rh,rw = region.shape
-    th,tw = tmpl.img.shape
-    key   = label or next(k for k,v in TEMPLATES.items() if v is tmpl)
+    rh, rw = region.shape
 
-    # 2) Skip if too small for template
-    if rh < th or rw < tw:
-        last_vals[key] = 0.0
-        return None
+    # 2) Slide over every variant, track highest score
+    best_val: float = -1.0
+    best_loc: tuple[int,int] = (0, 0)
+    best_sz: tuple[int,int] = (0, 0)
 
-    # 3) ORB: equalize region, compute descriptors
-    region_eq = cv2.equalizeHist(region)
-    kp2, des2 = _orb.detectAndCompute(region_eq, None)
-    if des2 is None or len(des2) < 4:
-        return _tm_fallback(region, x, y, tmpl, key)
+    for img in tmpl.imgs:
+        th, tw = img.shape
+        if rh < th or rw < tw:
+            continue
+        res = cv2.matchTemplate(region, img, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        if max_val > best_val:
+            best_val = max_val
+            best_loc = max_loc
+            best_sz = (tw, th)
 
-    # 4) match descriptors with Lowe’s ratio test
-    raw = _bf.knnMatch(tmpl.des, des2, k=2)
-    good = [m for m,n in raw if m.distance < 0.75*n.distance]
-    if len(good) < 4:
-        return _tm_fallback(region, x, y, tmpl, key)
-
-    # 5) try RANSAC homography
-    src = np.float32([tmpl.kp[m.queryIdx].pt for m in good]).reshape(-1,1,2)
-    dst = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1,1,2)
+    # record raw score for GUI
     try:
-        M, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
-    except cv2.error:
-        return _tm_fallback(region, x, y, tmpl, key)
+        key = label or next(k for k,v in TEMPLATES.items() if v is tmpl)
+    except StopIteration:
+        key = label or "<unknown>"
+    last_vals[key] = best_val
 
-    if mask is None:
-        return _tm_fallback(region, x, y, tmpl, key)
-
-    inliers = int(mask.sum())
-    if inliers < 4:
-        return _tm_fallback(region, x, y, tmpl, key)
-
-    # 6) build ORB score and record
-    score = inliers / max(1, len(tmpl.kp))
-    last_vals[key] = score
-
-    # 7) threshold test
-    if score < tmpl.thresh:
+    # 3) threshold check
+    if best_val < tmpl.thresh:
         return None
 
-    # 8) success!
-    last_pass[key] = score
-    return _tm_center(region, x, y, tmpl)
+    # record last passing score
+    last_pass[key] = best_val
+
+    # 4) compute centre in full‐screen coords
+    cx = x + best_loc[0] + best_sz[0] // 2
+    cy = y + best_loc[1] + best_sz[1] // 2
+    return (cx, cy)
 
 def _tm_center(region, x, y, tmpl):
     res = cv2.matchTemplate(region, tmpl.img, cv2.TM_CCOEFF_NORMED)
@@ -484,45 +511,46 @@ def limbus_bot():
             choice_skip      = choice_overlay and ego_get_overlay    # skip if both are present
 
             # ── Bail-early overlays ──────────────────────────────────────────────
-            if choice_overlay and not choice_skip:
-                debug_log.append("[3-1] Choice Check – waiting…")
-                need_refresh = True
+            if not full_auto_mirror:
+                if choice_overlay and not choice_skip:
+                    debug_log.append("[3-1] Choice Check – waiting…")
+                    need_refresh = True
 
-                continue
+                    continue
 
-            elif ego_block:
-                debug_log.append("[3-2] EGO Check – waiting…")
-                need_refresh = True
+                elif ego_block:
+                    debug_log.append("[3-2] EGO Check – waiting…")
+                    need_refresh = True
 
-                continue
+                    continue
 
-            elif fusion_overlay:
-                debug_log.append("[3-3] Fusion Check – waiting…")
-                need_refresh = True
+                elif fusion_overlay:
+                    debug_log.append("[3-3] Fusion Check – waiting…")
+                    need_refresh = True
 
-                continue
+                    continue
 
-            elif ego_get_overlay:
-                debug_log.append("[3-4] EGO Gift Recieved – running…")
-                # # Move pointer to a clear spot: center-x, 80% down
-                # h, w = screen_gray.shape
-                # pyautogui.moveTo(w // 2, int(h * 0.75))
-                # pyautogui.click()
-                keyboard.press_and_release("enter")
-                time.sleep(CHECK_INTERVAL)
+                elif ego_get_overlay:
+                    debug_log.append("[3-4] EGO Gift Recieved – running…")
+                    # # Move pointer to a clear spot: center-x, 80% down
+                    # h, w = screen_gray.shape
+                    # pyautogui.moveTo(w // 2, int(h * 0.75))
+                    # pyautogui.click()
+                    keyboard.press_and_release("enter")
+                    time.sleep(CHECK_INTERVAL)
 
-                continue
+                    continue
 
-            elif choice_skip:
-                debug_log.append("[3-5] Choice Skip – running…")
-                # # Move pointer to a clear spot: centre-x, 80% down
-                # h, w = screen_gray.shape
-                # pyautogui.moveTo(w // 2, int(h * 0.75))
-                # pyautogui.click()
-                keyboard.press_and_release("enter")
-                time.sleep(CHECK_INTERVAL)
+                elif choice_skip:
+                    debug_log.append("[3-5] Choice Skip – running…")
+                    # # Move pointer to a clear spot: centre-x, 80% down
+                    # h, w = screen_gray.shape
+                    # pyautogui.moveTo(w // 2, int(h * 0.75))
+                    # pyautogui.click()
+                    keyboard.press_and_release("enter")
+                    time.sleep(CHECK_INTERVAL)
 
-                continue
+                    continue
 
             # ── Confirm (no blocking overlays, no undesired EGO-Continue scenario) ──
             black = best_match(screen_gray, TEMPLATES["black_confirm"])
@@ -545,6 +573,24 @@ def limbus_bot():
                 time.sleep(0.2)
                 screen_gray = refresh_screen()
 
+                # Abnormality Event: Select Event Type
+                if full_auto_mirror:
+                    events = [
+                        TEMPLATES["abno_level"],
+                        TEMPLATES["abno_earn"],
+                        TEMPLATES["abno_gain"],
+                        TEMPLATES["abno_restore"],
+                        TEMPLATES["abno_blank"],
+                    ]
+                    for event in events:
+                        if (pt := best_match(screen_gray, event)):
+                            debug_log.append(f"[4-1A] Abno. Event {event} – running…")
+                            click(pt, "Abno. Event → click", hold_ms=10)
+                            time.sleep(CHECK_INTERVAL)
+                            screen_gray = refresh_screen()
+                            break
+
+
                 # If Continue is present, click that too
                 # (this is the “Continue” button in the Abnormality Event)
                 # clicks twice to auto advance the dialogue
@@ -559,25 +605,26 @@ def limbus_bot():
                 # If Very High is present, click that too
                 # (this selects the first sinner with Very High chance of
                 #  passing the Abnormality Event Check)
-                if (pt := best_match(screen_gray, TEMPLATES["very_high"])):
-                    debug_log.append("[4-3] Very High Abno. Dialogue – running…")
-                    click(pt, "Very High → click", hold_ms=10)
-                    time.sleep(0.25)
-                    screen_gray = refresh_screen()
+                if full_auto_mirror:
+                    if (pt := best_match(screen_gray, TEMPLATES["very_high"])):
+                        debug_log.append("[4-3] Very High Abno. Dialogue – running…")
+                        click(pt, "Very High → click", hold_ms=10)
+                        time.sleep(0.25)
+                        screen_gray = refresh_screen()
 
-                # If Proceed is present, click that too
-                # (this is the Proceed button in the Abnormality Event)
-                # clicks twice to auto advance the dialogue
-                if (pt := best_match(screen_gray, TEMPLATES["proceed"])):
-                    debug_log.append("[4-4] Proceed Abno. Dialogue – running…")
-                    click(pt, "Proceed → click", hold_ms=10)
-                    time.sleep(0.2)
-                    h, w = screen_gray.shape
-                    pyautogui.moveTo(w // 2, int(h * 0.90))
-                    pyautogui.click()
-                    time.sleep(0.1)
-                    time.sleep(CHECK_INTERVAL)
-                    screen_gray = refresh_screen()
+                    # If Proceed is present, click that too
+                    # (this is the Proceed button in the Abnormality Event)
+                    # clicks twice to auto advance the dialogue
+                    if (pt := best_match(screen_gray, TEMPLATES["proceed"])):
+                        debug_log.append("[4-4] Proceed Abno. Dialogue – running…")
+                        click(pt, "Proceed → click", hold_ms=10)
+                        time.sleep(0.2)
+                        h, w = screen_gray.shape
+                        pyautogui.moveTo(w // 2, int(h * 0.90))
+                        pyautogui.click()
+                        time.sleep(0.1)
+                        time.sleep(CHECK_INTERVAL)
+                        screen_gray = refresh_screen()
 
                 # If Commence is present, click that too
                 # (this is the Commence button in the Abnormality Event)
@@ -612,7 +659,7 @@ def limbus_bot():
             if battle or chain:
                 debug_log.append("[5] To Battle / Chain Battle – running…")
                 click(battle or chain, "To Battle → click", hold_ms=10)
-                time.sleep(CHECK_INTERVAL)
+                time.sleep(1.0)
                 need_refresh = True
 
                 continue
@@ -748,93 +795,94 @@ def limbus_bot():
             # # needs images, will get when mirror dungeon resets again
             # # C) Full Auto Mirror Dungeon
             # if full_auto_mirror:
-            #     # step-by-step: Drive → Mirror Dungeon → Mirror Enter [List is reversed]
-            #     if (pt := best_match(screen_gray, TEMPLATES["drive"])):
-            #         debug_log.append("[C-1] Drive check")
-            #         click(pt, "Drive → click", hold_ms=10)
-            #         time.sleep(CHECK_INTERVAL)
-            #         screen_gray = refresh_screen()
-            #         need_refresh = True
-            #     if (pt := best_match(screen_gray, TEMPLATES["mirror_dungeon"])):
-            #         debug_log.append("[C-2] Mirror Dungeon check")
-            #         click(pt, "Mirror Dungeon → click", hold_ms=10)
-            #         time.sleep(CHECK_INTERVAL)
-            #         screen_gray = refresh_screen()
-            #         need_refresh = True
-            #     if (pt := best_match(screen_gray, TEMPLATES["mirror_enter"])):
-            #         debug_log.append("[C-3] Mirror Enter check")
-            #         click(pt, "Mirror Enter → click", hold_ms=10)
-            #         time.sleep(CHECK_INTERVAL)
-            #         screen_gray = refresh_screen()
-            #         need_refresh = True
-                # check for stage
-                # if (pt := best_match(screen_gray, TEMPLATES["mirror_stage"])):
-                #     debug_log.append("[C-4] Extering Next Stage")
-                #     click(pt, "Mirror Stage → click", hold_ms=10)
-                #     time.sleep(CHECK_INTERVAL)
-                #     screen_gray = refresh_screen()
-                #     need_refresh = True
-                #
-                # leave store
-                # if (pt := best_match(screen_gray, TEMPLATES["mirror_store"])):
-                #     debug_log.append("[C-5] Entering Store")
-                #     click(pt, "Mirror Store → click", hold_ms=10)
-                #     time.sleep(CHECK_INTERVAL)
-                #     screen_gray = refresh_screen()
-                #     need_refresh = True
-                #
-                # check for theme pack
-                # if (pt := best_match(screen_gray, TEMPLATES["mirror_theme"])):
-                #     debug_log.append("[C-6] Entering Theme Pack")
-                #     click(pt, "Mirror Theme Pack → click", hold_ms=10)
-                #     time.sleep(CHECK_INTERVAL)
-                #     screen_gray = refresh_screen()
-                #     need_refresh = True
-                #
-                # 
+            
+            #     # # 1) open Drive menu
+            #     # if (pt := best_match(screen_gray, TEMPLATES["drive"])):
+            #     #     debug_log.append("[C-1] Drive check")
+            #     #     click(pt, "Drive → click", hold_ms=10)
+            #     #     time.sleep(CHECK_INTERVAL)
+            #     #     screen_gray = refresh_screen()
+            #     #     need_refresh = True
+            
+            #     # # 2) enter Mirror Dungeon mode
+            #     # if (pt := best_match(screen_gray, TEMPLATES["mirror_dungeon"])):
+            #     #     debug_log.append("[C-2] Mirror Dungeon check")
+            #     #     click(pt, "Mirror Dungeon → click", hold_ms=10)
+            #     #     time.sleep(CHECK_INTERVAL)
+            #     #     screen_gray = refresh_screen()
+            #     #     need_refresh = True
+            
+            #     # # 3) Enter Mirror Dungeon Actual
+            #     # if (pt := best_match(screen_gray, TEMPLATES["mirror_enter"])):
+            #     #     debug_log.append("[C-3] Mirror Enter check")
+            #     #     click(pt, "Mirror Enter → click", hold_ms=10)
+            #     #     time.sleep(CHECK_INTERVAL)
+            #     #     screen_gray = refresh_screen()
+            #     #     need_refresh = True
+            
+            #     # check for stage
+            #     stages = [
+            #         TEMPLATES["md_supershop"],
+            #         TEMPLATES["md_shop"],
+            #         TEMPLATES["md_boss"],
+            #         TEMPLATES["md_abno"],
+            #         TEMPLATES["md_question"],
+            #         TEMPLATES["md_monster"],
+            #         TEMPLATES["md_coin"],
+            #         TEMPLATES["md_twosword"],
+            #         TEMPLATES["md_sword"],
+            #     ]
+            #     for stage in stages:
+            #         if (pt := best_match(screen_gray, stage)):
+            #             debug_log.append(f"[C-4] Entering Next {stage} Stage")
+            #             click(pt, f"{stage} → click", hold_ms=10)
+            #             time.sleep(CHECK_INTERVAL)
+            #             screen_gray = refresh_screen()
+            #             need_refresh = True
 
-
-            # if full_auto_mirror:
-            #     # auto select next path, ego gift rewards, encounter rewards
-            #     gifts = best_match(screen_gray, TEMPLATES["reward"])
-            #     e_reward = best_match(screen_gray, TEMPLATES["encounter_reward"])
-            #     next_encounter = best_match(screen_gray, TEMPLATES["encounter"])
-            #     shop_skip = best_match(screen_gray, TEMPLATES["shop_skip"])
-            #     leave = best_match(screen_gray, TEMPLATES["leave"])
-            #     if next_encounter:   
-            #         if isinstance(next_encounter, list) and len(next_encounter) > 1:
-            #             # Sort by x-coordinate and select the middle one
-            #             next_encounter.sort(key=lambda pt: pt[0])
-            #             middle_index = len(next_encounter) // 2
-            #             next_encounter = next_encounter[middle_index]
-            #         click(next_encounter, "Next Encounter → click", hold_ms=10)
+            #     # leave store
+            #     if (pt := best_match(screen_gray, TEMPLATES["leave"])):
+            #         debug_log.append("[C-5] Leaving Store")
+            #         click(pt, "Leave → click", hold_ms=10)
             #         time.sleep(CHECK_INTERVAL)
             #         screen_gray = refresh_screen()
-            #     if gifts:
+            #         need_refresh = True
+
+            #     # # check for theme pack
+            #     # if (pt := best_match(screen_gray, TEMPLATES["mirror_theme"])):
+            #     #     debug_log.append("[C-6] Entering Theme Pack")
+            #     #     click(pt, "Mirror Theme Pack → click", hold_ms=10)
+            #     #     time.sleep(CHECK_INTERVAL)
+            #     #     screen_gray = refresh_screen()
+            #     #     need_refresh = True
+
+            #     # check for gift reward
+            #     if (pt := best_match(screen_gray, TEMPLATES["ego_gift_choice"])):
             #         # Check for multiple matches and select the highest rank reward
-            #         reward_ranks = [f"gift_reward_{i}" for i in range(4, 0, -1)]
+            #         reward_ranks = [f"gift_reward_{i}" for i in range(4, 1, -1)]
             #         for rank in reward_ranks:
             #             if (ranked_reward := best_match(screen_gray, TEMPLATES.get(rank))):
+            #                 debug_log.append(f"[C-7] {rank.capitalize()} check")
             #                 click(ranked_reward, f"{rank.capitalize()} → click", hold_ms=10)
             #                 time.sleep(CHECK_INTERVAL)
             #                 screen_gray = refresh_screen()
-            #                 break
-            #     if e_reward:
+            #                 need_refresh = True
+
+            #     # check for encounter rewards
+            #     if (pt := best_match(screen_gray, TEMPLATES["encounter_reward"])):
             #         # Check for multiple matches and select the highest rank reward
-            #         reward_ranks = [f"encounter_reward_{i}" for i in range(10, 0, -1)]
+            #         reward_ranks = [f"encounter_reward_{i}" for i in range(10, 1, -1)]
             #         for rank in reward_ranks:
             #             if (ranked_reward := best_match(screen_gray, TEMPLATES.get(rank))):
+            #                 debug_log.append(f"[C-8] {rank.capitalize()} Aquisition")
             #                 click(ranked_reward, f"{rank.capitalize()} → click", hold_ms=10)
             #                 time.sleep(CHECK_INTERVAL)
             #                 screen_gray = refresh_screen()
-            #                 break
-            #     if shop_skip:
-            #         click(leave, "Skip Shop → click", hold_ms=10)
-            #         time.sleep(CHECK_INTERVAL)
-            #         screen_gray = refresh_screen()
-            #     # auto select next path, ego gift rewards, encounter rewards
-            #     continue
+            #                 need_refresh = True
 
+            #     if need_refresh:
+            #         continue
+            
 
         time.sleep(CHECK_INTERVAL)     # idle back-off to prevent CPU hogging
 
@@ -842,11 +890,15 @@ def limbus_bot():
 def main():
     # Register global hotkeys once
     # Pause / resume the bot with Ctrl+Shift+D
+    def _on_pause_hotkey():
+        tuner = get_tuner()
+        if tuner:
+            # schedule the toggle on the GUI thread
+            tuner.after(0, tuner._toggle_bot)
+
     keyboard.add_hotkey(
         'ctrl+shift+d',
-        lambda: (
-            get_tuner() and get_tuner()._toggle_bot()
-        ),
+        _on_pause_hotkey,
         suppress=True, trigger_on_release=True
     )
 

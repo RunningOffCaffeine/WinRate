@@ -124,23 +124,24 @@ class Tuner(tk.Tk):
         chk_frame.pack(fill="x", pady=4)
 
         # column 0
-        ttk.Checkbutton(chk_frame,
-                        text="HDR mode",
-                        variable=self.var_hdr,
-                        command=self._toggle_hdr
-                    ).grid(row=0, column=0, sticky="w", padx=2, pady=2)
+        # HDR flag obsolete, checks both by default and returns best match
+        # ttk.Checkbutton(chk_frame,
+        #                 text="HDR mode",
+        #                 variable=self.var_hdr,
+        #                 command=self._toggle_hdr
+        #             ).grid(row=0, column=0, sticky="w", padx=2, pady=2)
         
         ttk.Checkbutton(chk_frame,
                         text="Debug mode",
                         variable=self.var_debug,
                         command=self._toggle_debug
-                    ).grid(row=1, column=0, sticky="w", padx=2, pady=2)
+                    ).grid(row=2, column=0, sticky="w", padx=2, pady=2)
         
         ttk.Checkbutton(chk_frame,
                         text="Skip Text",
                         variable=self.var_text_skip,
                         command=self._toggle_text_skip
-                    ).grid(row=2, column=0, sticky="w", padx=2, pady=2)
+                    ).grid(row=1, column=0, sticky="w", padx=2, pady=2)
 
         # column 1
         ttk.Checkbutton(chk_frame,
@@ -687,7 +688,3 @@ def launch_gui(
         )
         _tuner_instance.mainloop()
     threading.Thread(target=_run, daemon=True).start()
-
-def get_tuner() -> Tuner | None:
-    """Retrieve the single Tuner instance once it's up."""
-    return _tuner_instance
