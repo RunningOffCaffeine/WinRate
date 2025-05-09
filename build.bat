@@ -25,6 +25,7 @@ python -m PyInstaller ^
     --onefile  ^
     --console  ^
     --name WinRate  ^
+    --add-data "%~dp0*.png;." ^
     winrate.py
 
 if errorlevel 1 (

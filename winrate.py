@@ -23,8 +23,7 @@ def _require(pkg, import_as=None, pypi_name=None):
         subprocess.check_call([sys.executable, "-m", "pip", "install", name])
         return importlib.import_module(pkg if import_as is None else import_as)
 
-from gui_config import launch_gui
-from gui_config import get_tuner
+from gui_config import launch_gui, get_tuner
 
 if getattr(sys, 'frozen', False):
     # running in PyInstaller bundle
@@ -149,6 +148,7 @@ TEMPLATE_SPEC = {
     "fast_forward"       : ("Fast Forward",                0.75,       (0.45, 0.00, 0.35, 0.20)),
     "confirm"            : ("Confirm",                     0.80,       (0.35, 0.55, 0.35, 0.25)),
     "black_confirm"      : ("Black Confirm",               0.80,       (0.36, 0.67, 0.26, 0.12)),
+    "black_confirm_v2"   : ("Black Confirm Wide",          0.80,       (0.70, 0.70, 0.30, 0.30)),
     "battle"             : ("To Battle",                   0.70,       (0.70, 0.70, 0.30, 0.30)),
     "chain_battle"       : ("Battle Chain",                0.82,       (0.50, 0.50, 0.50, 0.50)),
     "skip"               : ("Skip",                        0.80,       (0.00, 0.30, 0.50, 0.40)),
@@ -554,10 +554,11 @@ def limbus_bot():
 
             # ── Confirm (no blocking overlays, no undesired EGO-Continue scenario) ──
             black = best_match(screen_gray, TEMPLATES["black_confirm"])
+            black2 = best_match(screen_gray, TEMPLATES["black_confirm_v2"])
             white = best_match(screen_gray, TEMPLATES["confirm"])
-            if black or white:
+            if black or black2 or white:
                 debug_log.append("[3-6] Confirm – running…")
-                click(black or white, "Confirm → click", hold_ms=10)
+                click(black or black2 or white, "Confirm → click", hold_ms=10)
                 time.sleep(CHECK_INTERVAL)
                 need_refresh = True
 
@@ -573,22 +574,22 @@ def limbus_bot():
                 time.sleep(0.2)
                 screen_gray = refresh_screen()
 
-                # Abnormality Event: Select Event Type
-                if full_auto_mirror:
-                    events = [
-                        TEMPLATES["abno_level"],
-                        TEMPLATES["abno_earn"],
-                        TEMPLATES["abno_gain"],
-                        TEMPLATES["abno_restore"],
-                        TEMPLATES["abno_blank"],
-                    ]
-                    for event in events:
-                        if (pt := best_match(screen_gray, event)):
-                            debug_log.append(f"[4-1A] Abno. Event {event} – running…")
-                            click(pt, "Abno. Event → click", hold_ms=10)
-                            time.sleep(CHECK_INTERVAL)
-                            screen_gray = refresh_screen()
-                            break
+                # # Abnormality Event: Select Event Type
+                # if full_auto_mirror:
+                #     events = [
+                #         TEMPLATES["abno_level"],
+                #         TEMPLATES["abno_earn"],
+                #         TEMPLATES["abno_gain"],
+                #         TEMPLATES["abno_restore"],
+                #         TEMPLATES["abno_blank"],
+                #     ]
+                #     for event in events:
+                #         if (pt := best_match(screen_gray, event)):
+                #             debug_log.append(f"[4-1A] Abno. Event {event} – running…")
+                #             click(pt, "Abno. Event → click", hold_ms=10)
+                #             time.sleep(CHECK_INTERVAL)
+                #             screen_gray = refresh_screen()
+                #             break
 
 
                 # If Continue is present, click that too
@@ -609,7 +610,7 @@ def limbus_bot():
                     if (pt := best_match(screen_gray, TEMPLATES["very_high"])):
                         debug_log.append("[4-3] Very High Abno. Dialogue – running…")
                         click(pt, "Very High → click", hold_ms=10)
-                        time.sleep(0.25)
+                        time.sleep(0.5)
                         screen_gray = refresh_screen()
 
                     # If Proceed is present, click that too
@@ -899,6 +900,36 @@ def main():
     keyboard.add_hotkey(
         'ctrl+shift+d',
         _on_pause_hotkey,
+        suppress=True, trigger_on_release=True
+    )
+
+    # Thread-Lux toggle
+    def _on_thread_hotkey():
+        tuner = get_tuner()
+        def _flip():
+            current = tuner.var_lux_thread.get()
+            tuner.var_lux_thread.set(not current)
+            tuner._toggle_thread_lux()
+        tuner.after(0, _flip)
+
+    keyboard.add_hotkey(
+        'ctrl+shift+t',
+        _on_thread_hotkey,
+        suppress=True, trigger_on_release=True
+    )
+
+    # EXP-Lux toggle
+    def _on_exp_hotkey():
+        tuner = get_tuner()
+        def _flip():
+            current = tuner.var_lux_EXP.get()
+            tuner.var_lux_EXP.set(not current)
+            tuner._toggle_exp_lux()
+        tuner.after(0, _flip)
+
+    keyboard.add_hotkey(
+        'ctrl+shift+e',
+        _on_exp_hotkey,
         suppress=True, trigger_on_release=True
     )
 
