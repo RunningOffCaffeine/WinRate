@@ -613,25 +613,12 @@ def limbus_bot():
                         time.sleep(0.5)
                         screen_gray = refresh_screen()
 
-                    # If Proceed is present, click that too
-                    # (this is the Proceed button in the Abnormality Event)
-                    # clicks twice to auto advance the dialogue
-                    if (pt := best_match(screen_gray, TEMPLATES["proceed"])):
-                        debug_log.append("[4-4] Proceed Abno. Dialogue – running…")
-                        click(pt, "Proceed → click", hold_ms=10)
-                        time.sleep(0.2)
-                        h, w = screen_gray.shape
-                        pyautogui.moveTo(w // 2, int(h * 0.90))
-                        pyautogui.click()
-                        time.sleep(0.1)
-                        time.sleep(CHECK_INTERVAL)
-                        screen_gray = refresh_screen()
-
-                # If Commence is present, click that too
-                # (this is the Commence button in the Abnormality Event)
-                if (pt := best_match(screen_gray, TEMPLATES["commence"])):
-                    debug_log.append("[4-5] Commence Abno. Dialogue – running…")
-                    click(pt, "Commence → click", hold_ms=10)
+                # If Proceed is present, click that too
+                # (this is the Proceed button in the Abnormality Event)
+                # clicks twice to auto advance the dialogue
+                if (pt := best_match(screen_gray, TEMPLATES["proceed"])):
+                    debug_log.append("[4-4] Proceed Abno. Dialogue – running…")
+                    click(pt, "Proceed → click", hold_ms=10)
                     time.sleep(0.2)
                     h, w = screen_gray.shape
                     pyautogui.moveTo(w // 2, int(h * 0.90))
@@ -639,6 +626,20 @@ def limbus_bot():
                     time.sleep(0.1)
                     time.sleep(CHECK_INTERVAL)
                     screen_gray = refresh_screen()
+
+                # If Commence is present, click that too
+                # (this is the Commence button in the Abnormality Event)
+                if full_auto_mirror:
+                    if (pt := best_match(screen_gray, TEMPLATES["commence"])):
+                        debug_log.append("[4-5] Commence Abno. Dialogue – running…")
+                        click(pt, "Commence → click", hold_ms=10)
+                        time.sleep(0.2)
+                        h, w = screen_gray.shape
+                        pyautogui.moveTo(w // 2, int(h * 0.90))
+                        pyautogui.click()
+                        time.sleep(0.1)
+                        time.sleep(CHECK_INTERVAL)
+                        screen_gray = refresh_screen()
 
                 # If Commence Battle is present, click that too
                 # (this is the Commence Battle button in the Abnormality Event)
