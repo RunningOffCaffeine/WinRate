@@ -1,4 +1,4 @@
-# roi_threshold_gui.py
+# gui_config.py
 """
 Live-tuning GUI for Limbus bot
 ──────────────────────────────
@@ -680,7 +680,7 @@ class Tuner(tk.Tk):
                 "roi": list(roi) if roi else None,
             }
 
-        file_path = os.path.join(os.path.dirname(__file__), "roi_thresholds.json")
+        file_path = os.path.join(os.path.dirname(__file__), "saved_user_vars.json")
         try:
             with open(file_path, "w") as fp:
                 json.dump(config_data, fp, indent=2)

@@ -584,25 +584,33 @@ class Tuner(tk.Tk):
             f"Reset ROI for {template_name} to {default_roi if default_roi else 'None'}"
         )
 
-    def _save_current_config_to_json(self):
-        """Saves current configurations (delay, template specs) to roi_thresholds.json."""
+    def _save_current_config_to_json(self): 
+        """Saves current configurations (delay, template specs) to saved_user_vars.json."""
+        # Prepare the data to be saved
         config_data = {
             "general_settings": {
-                "delay_ms": self.var_delay.get()
-            },  # Save current delay_ms
-            "templates": {},
+                "delay_ms": self.var_delay.get() # Get current delay from the Tkinter variable
+            },
+            "templates": {} # Placeholder for template-specific settings
         }
-        for name, (base, thresh, roi) in self.spec.items():
+        
+        # Populate template-specific settings (thresholds and ROIs)
+        # self.spec refers to the live TEMPLATE_SPEC dictionary shared with winrate.py
+        for name, (base, thresh, roi) in self.spec.items(): 
             config_data["templates"][name] = {
-                "base": base,
-                "threshold": round(thresh, 4),
-                "roi": list(roi) if roi else None,
+                "base": base, 
+                "threshold": round(thresh, 4), # Round threshold for cleaner JSON
+                "roi": list(roi) if roi else None # Convert ROI tuple to list for JSON, or None
             }
-
-        file_path = os.path.join(os.path.dirname(__file__), "roi_thresholds.json")
+        
+        # Determine the path to the configuration file
+        # Assumes saved_user_vars.json is in the same directory as multithreaded_gui_config.py
+        file_path = os.path.join(os.path.dirname(__file__), "saved_user_vars.json")
+        
         try:
-            with open(file_path, "w") as fp:
-                json.dump(config_data, fp, indent=2)
+            # Write the configuration data to the JSON file
+            with open(file_path, "w", encoding="utf-8") as fp: # Specify encoding
+                json.dump(config_data, fp, indent=2) # Use indent for readability
             self._log_to_gui_console(f"Config saved to {file_path}")
         except Exception as e:
             self._log_to_gui_console(f"Error saving config: {e}")

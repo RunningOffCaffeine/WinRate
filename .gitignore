@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Crash logs
+crash_logs/
+
 # C extensions
 *.so
 

@@ -1,17 +1,7 @@
 #!/usr/bin/env python3
 """
 Auto-pilot for Limbus Company battles (Multithreaded Core Logic Version with GUI).
-
-This script automates gameplay in Limbus Company by recognizing UI elements
-on screen through template matching and simulating user input.
-This version focuses on multithreading for template matching to improve performance
-and re-integrates the GUI for configuration.
-Includes mouse shake failsafe and persistent delay_ms setting.
-
-Exit at any time with Ctrl+Shift+Q or by flinging the mouse to the
-top-left corner (PyAutoGUI failsafe).
-
-Dependencies: opencv-python, numpy, pyautogui, keyboard, pygetwindow, mss
+Includes runtime crash logging and robust import handling.
 """
 
 # ── std-lib imports ───────────────────────────────────────────────────
@@ -23,77 +13,154 @@ import json
 from collections import namedtuple
 import copy
 from concurrent.futures import ThreadPoolExecutor
-import math  # For mouse shake distance calculation
+import math
+import traceback  # For formatting tracebacks
+from datetime import datetime  # For timestamping crash logs
 
 
 # ── auto-installer for third-party packages ───────────────────────────
 def _require(pkg, import_as=None, pypi_name=None):
+    """
+    Imports a package, installing it if not found.
+    Exits script if a critical package fails to install or import.
+    """
     import importlib
     import subprocess
 
-    name = pypi_name or pkg
+    name_to_install = pypi_name or pkg
+    module_name_to_import = import_as if import_as else pkg
+
     try:
-        return importlib.import_module(pkg if import_as is None else import_as)
+        # First attempt to import
+        if import_as:
+            return importlib.import_module(
+                pkg, package=import_as
+            )  # For cases like "from package import module as alias"
+        else:
+            return importlib.import_module(pkg)
     except ModuleNotFoundError:
-        print(f"[setup] installing '{name}' …")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", name])
-        return importlib.import_module(pkg if import_as is None else import_as)
+        print(
+            f"[setup] '{module_name_to_import}' not found. Attempting to install '{name_to_install}'…"
+        )
+        try:
+            # Attempt to install
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", name_to_install]
+            )
+            # Second attempt to import after installation
+            print(
+                f"[setup] Installation of '{name_to_install}' complete. Importing '{module_name_to_import}'..."
+            )
+            if import_as:
+                return importlib.import_module(pkg, package=import_as)
+            else:
+                return importlib.import_module(pkg)
+        except subprocess.CalledProcessError as e:
+            print(
+                f"ERROR: Failed to install package '{name_to_install}'. Pip command failed. Exception: {e}",
+                file=sys.stderr,
+            )
+            print(
+                f"Please try installing it manually: pip install {name_to_install}",
+                file=sys.stderr,
+            )
+            sys.exit(f"Critical dependency '{name_to_install}' installation failed.")
+        except ModuleNotFoundError:
+            print(
+                f"ERROR: Package '{name_to_install}' was reportedly installed, but module '{module_name_to_import}' still could not be imported.",
+                file=sys.stderr,
+            )
+            sys.exit(
+                f"Critical dependency '{module_name_to_import}' import failed after installation."
+            )
+        except (
+            Exception
+        ) as e:  # Catch any other unexpected errors during post-install import
+            print(
+                f"ERROR: An unexpected error occurred while trying to import '{module_name_to_import}' after installing '{name_to_install}'. Exception: {e}",
+                file=sys.stderr,
+            )
+            sys.exit(
+                f"Unexpected error with package '{module_name_to_import}' after installation."
+            )
+    except (
+        Exception
+    ) as e:  # Catch any other unexpected errors during initial import attempt
+        print(
+            f"ERROR: An unexpected error occurred while trying to import '{module_name_to_import}'. Exception: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(f"Unexpected error with package '{module_name_to_import}'.")
 
 
-# --- GUI Import ---
-try:
-    from multithread_gui_config import launch_gui, get_tuner
-except ImportError as e:
-    print(
-        f"NOTE: GUI (multithread_gui_config.py) could not be imported ({e}). Running headless."
-    )
-    launch_gui = None
-    get_tuner = None
-
-if getattr(sys, "frozen", False):
+# --- Conditional Imports for PyInstaller and Normal Execution ---
+if getattr(sys, 'frozen', False):  # Running as a PyInstaller bundle
+    print("INFO: Running as a PyInstaller frozen executable.")
     import cv2
     import numpy as np
     import pyautogui
     import keyboard
-    import pygetwindow as gw
+    import pygetwindow 
+    gw = pygetwindow 
     import mss
-else:
-    cv2 = _require("cv2", pypi_name="opencv-python")
-    np = _require("numpy")
-    pyautogui = _require("pyautogui")
-    keyboard = _require("keyboard")
-    gw = _require("pygetwindow", import_as="pygetwindow")
-    mss = _require("mss")
+    from PIL import Image, ImageTk 
+else:  # Running as a script
+    print("INFO: Running as a Python script.")
+    cv2       = _require("cv2",        pypi_name="opencv-python")
+    np        = _require("numpy")
+    pyautogui = _require("pyautogui") 
+    keyboard  = _require("keyboard")
+    gw        = _require("pygetwindow", import_as="pygetwindow") 
+    mss       = _require("mss")
+    _require("PIL", pypi_name="Pillow") 
+    from PIL import Image, ImageTk 
 
-# ───────────────────────── Runtime safety ──────────────────────────────
-pyautogui.FAILSAFE = True
-pyautogui.PAUSE = 0.05
+
+# --- GUI Import ---
+try:
+    from multithreaded_gui_config import launch_gui, get_tuner
+except ImportError as e:
+    # If GUI cannot be imported, print an error and exit.
+    # This prevents the script from running in headless mode if the GUI is critical.
+    error_message = f"CRITICAL ERROR: GUI module (multithreaded_gui_config.py) could not be imported. Exception: {e}"
+    print(error_message, file=sys.stderr)
+    # Optionally, write to a startup log or use the crash handler if it's already defined
+    # For now, just print and exit.
+    if "handle_exception" in globals() and callable(handle_exception):
+        # If handle_exception is defined, use it to log this critical startup error
+        try:
+            handle_exception(
+                ImportError, ImportError(f"GUI module failed to import: {e}"), None
+            )
+        except Exception as he_e:
+            print(
+                f"Error trying to use custom exception handler for GUI import failure: {he_e}",
+                file=sys.stderr,
+            )
+    sys.exit(1)  # Exit with a non-zero status code to indicate an error
+
+# --- Global Variables ---
+# PyAutoGUI settings are now moved to main() after successful import.
 pause_event = threading.Event()
-
-# ─────────────────────── User-configurable settings (MODULE LEVEL GLOBALS) ────────────────────
-delay_ms = 10  # Default, will be overridden by config if present
+delay_ms = 10
 is_HDR = False
 debug_flag = True
 text_skip = False
 lux_thread = False
 lux_EXP = False
 full_auto_mirror = False
-
 CHECK_INTERVAL = delay_ms / 1000.0
 DEBUG_MATCH = debug_flag
 last_vals: dict[str, float] = {}
 last_pass: dict[str, float] = {}
 debug_log: list[str] = []
-
-# --- Mouse Shake Failsafe Configuration ---
 LAST_MOUSE_POS: tuple[int, int] | None = None
 LAST_MOUSE_TIME: float = 0.0
-MOUSE_SHAKE_DISTANCE_THRESHOLD: int = 200  # Pixels moved rapidly
-MOUSE_SHAKE_TIME_WINDOW: float = 0.15  # Seconds for the rapid movement
+MOUSE_SHAKE_DISTANCE_THRESHOLD: int = 200
+MOUSE_SHAKE_TIME_WINDOW: float = 0.15
 MOUSE_SHAKES_DETECTED: int = 0
-MOUSE_SHAKES_TO_PAUSE: int = 3  # Number of rapid shakes to trigger pause
+MOUSE_SHAKES_TO_PAUSE: int = 3
 
-# ───────────────────────── Template metadata ───────────────────────────
 Tmpl = namedtuple("Tmpl", "imgs masks thresh roi")
 TEMPLATE_SPEC = {
     "winrate": ("winrate", 0.75, (0.50, 0.70, 0.50, 0.30)),
@@ -126,14 +193,84 @@ TEMPLATE_SPEC = {
 DEFAULT_TEMPLATE_SPEC = copy.deepcopy(TEMPLATE_SPEC)
 TEMPLATES: dict[str, Tmpl] = {}
 
+# --- Path Helper ---
+def get_application_path() -> str:
+    """Returns the base path for the application (script directory or exe directory)."""
+    if getattr(sys, 'frozen', False): # Running as a PyInstaller bundle
+        return os.path.dirname(sys.executable)
+    else: # Running as a script
+        return os.path.dirname(os.path.abspath(__file__))
 
-# --- Helper Functions ---
+APPLICATION_BASE_PATH = get_application_path() # Define this once globally
+
+
+# --- Crash Log Handler ---
+def handle_exception(exc_type, exc_value, exc_traceback):
+    """Custom exception hook to log unhandled exceptions to a file."""
+    global debug_log 
+    # Use APPLICATION_BASE_PATH for log directory
+    log_subdir = "crash_logs"; log_dir_path = os.path.join(APPLICATION_BASE_PATH, log_subdir)
+    try:
+        if not os.path.exists(log_dir_path): os.makedirs(log_dir_path)
+    except Exception as e:
+        print(f"CRITICAL: Could not create crash log directory at {log_dir_path}: {e}", file=sys.stderr)
+        log_dir_path = APPLICATION_BASE_PATH 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S"); log_file_name = f"crash_report_{timestamp}.log"
+    log_file_path = os.path.join(log_dir_path, log_file_name)
+    recent_debug_logs = []
+    if 'debug_log' in globals() and isinstance(debug_log, list): 
+        try: log_copy = list(debug_log); recent_debug_logs = log_copy[-50:] 
+        except Exception as e_log: recent_debug_logs = [f"Error retrieving recent debug logs: {e_log}"]
+    debug_log_section = "\n--- Recent Debug Log (Last 50 Lines) ---\n"
+    if recent_debug_logs:
+        for log_entry in recent_debug_logs: debug_log_section += f"{log_entry}\n"
+    else: debug_log_section += "No recent debug logs available or debug_log is empty.\n"
+    debug_log_section += "----------------------------------------\n"
+    error_message_traceback = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    full_log_message = (
+        f"--- CRASH REPORT ---\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"Exception Type: {exc_type.__name__}\nException Value: {exc_value}\n"
+        f"--- Traceback ---\n{error_message_traceback}{debug_log_section}---------------------\n"
+    )
+    try:
+        with open(log_file_path, "w", encoding="utf-8") as f: f.write(full_log_message)
+        print(f"CRITICAL ERROR: Unhandled exception. Crash report: {log_file_path}", file=sys.stderr)
+    except Exception as e:
+        print(f"CRITICAL: Could not write crash report to {log_file_path}: {e}", file=sys.stderr)
+        print(f"--- Fallback Crash Info ---\n{full_log_message}", file=sys.stderr)
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+    try:
+        with open(log_file_path, "w", encoding="utf-8") as f:
+            f.write(full_log_message)
+        print(f"CRITICAL ERROR: Unhandled exception. Crash report saved to: {log_file_path}", file=sys.stderr)
+    except Exception as e:
+        print(f"CRITICAL: Could not write crash report to {log_file_path}: {e}", file=sys.stderr)
+        # Fallback: print the full message to stderr if file writing fails
+        print(f"--- Fallback Crash Info (Not Written to File) ---\n{full_log_message}", file=sys.stderr)
+
+    # Also call the default excepthook to print to stderr if possible
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+
+# --- Helper Functions (resource_path, load_templates, active_window_title, etc.) ---
 def resource_path(fname: str) -> str:
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), fname)
+    """
+    Returns the absolute path to a resource file.
+    If frozen, it looks in sys._MEIPASS (PyInstaller's temp dir for bundled data).
+    Otherwise, it looks relative to the script's directory.
+    This is primarily for assets bundled with --add-data.
+    """
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # Path for bundled data files in PyInstaller
+        base_path = sys._MEIPASS
+    else:
+        # Path for local script execution
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, fname)
 
 
 def load_templates() -> dict[str, Tmpl]:
-    # (load_templates function remains the same as in winrate_py_optimizations_v1)
     out: dict[str, Tmpl] = {}
     for name, (base, thresh, roi) in TEMPLATE_SPEC.items():
         loaded_template_variants: list[np.ndarray] = []
@@ -312,7 +449,6 @@ def set_full_auto_mirror_config(state: bool):
 
 
 def best_match(screen_gray: np.ndarray, tmpl_obj: Tmpl) -> tuple[int, int] | None:
-    # (best_match function remains the same as in winrate_py_optimizations_v1)
     global last_vals, last_pass, TEMPLATES, DEBUG_MATCH, debug_log
     template_name = "<unknown_template_error>"
     try:
@@ -477,73 +613,55 @@ PRIMARY_CHECK_TEMPLATES = [
 ]
 
 
-# --- Mouse Shake Failsafe Function ---
 def check_mouse_shake_failsafe():
-    """Checks for rapid mouse movement and pauses the bot if detected."""
     global LAST_MOUSE_POS, LAST_MOUSE_TIME, MOUSE_SHAKES_DETECTED, pause_event, DEBUG_MATCH, debug_log
-
     try:
         current_pos = pyautogui.position()
         current_time = time.perf_counter()
-
         if LAST_MOUSE_POS is not None:
             time_diff = current_time - LAST_MOUSE_TIME
-            if (
-                time_diff < MOUSE_SHAKE_TIME_WINDOW and time_diff > 0.001
-            ):  # Avoid division by zero or stale data
+            if 0.001 < time_diff < MOUSE_SHAKE_TIME_WINDOW:
                 dist_moved = math.sqrt(
                     (current_pos.x - LAST_MOUSE_POS[0]) ** 2
                     + (current_pos.y - LAST_MOUSE_POS[1]) ** 2
                 )
-                # speed = dist_moved / time_diff # Optional: calculate speed
-
                 if dist_moved > MOUSE_SHAKE_DISTANCE_THRESHOLD:
                     MOUSE_SHAKES_DETECTED += 1
                     if DEBUG_MATCH:
                         debug_log.append(
-                            f"Mouse shake detected ({MOUSE_SHAKES_DETECTED}/{MOUSE_SHAKES_TO_PAUSE}). Dist: {dist_moved:.0f}px in {time_diff:.3f}s"
+                            f"Mouse shake ({MOUSE_SHAKES_DETECTED}/{MOUSE_SHAKES_TO_PAUSE}). Dist:{dist_moved:.0f}px in {time_diff:.3f}s"
                         )
                     if MOUSE_SHAKES_DETECTED >= MOUSE_SHAKES_TO_PAUSE:
-                        if not pause_event.is_set():  # Only pause if not already paused
+                        if not pause_event.is_set():
                             pause_event.set()
-                            debug_log.append(
-                                "****** BOT PAUSED DUE TO RAPID MOUSE SHAKE! ******"
-                            )
-                            print("****** BOT PAUSED DUE TO RAPID MOUSE SHAKE! ******")
-                            # Update GUI pause button if GUI is active
+                            debug_log.append("BOT PAUSED BY MOUSE SHAKE!")
+                            print("BOT PAUSED BY MOUSE SHAKE!")
                             tuner = get_tuner()
                             if (
                                 tuner
                                 and hasattr(tuner, "btn_pause")
                                 and hasattr(tuner, "_toggle_bot_pause_state")
                             ):
-                                # This needs to be scheduled on the GUI thread
                                 tuner.after(
                                     0,
                                     lambda: (
                                         tuner.btn_pause.config(
                                             text="Resume Bot", bg="red"
                                         )
-                                        # Optionally call _toggle_bot_pause_state if it handles internal state correctly
-                                        # without double-toggling the event. For now, just update button.
                                     ),
                                 )
-                        MOUSE_SHAKES_DETECTED = 0  # Reset after pausing
+                        MOUSE_SHAKES_DETECTED = 0
                 else:
-                    MOUSE_SHAKES_DETECTED = 0  # Reset if movement wasn't a shake
-            else:  # If time window is too large, reset shakes
+                    MOUSE_SHAKES_DETECTED = 0
+            else:
                 MOUSE_SHAKES_DETECTED = 0
-
         LAST_MOUSE_POS = (current_pos.x, current_pos.y)
         LAST_MOUSE_TIME = current_time
-    except (
-        Exception
-    ) as e:  # pyautogui.position() can sometimes fail (e.g. on Wayland without proper setup)
+    except Exception as e:
         if DEBUG_MATCH:
             debug_log.append(f"Error in mouse shake detection: {e}")
 
 
-# ───────────────────────────  Main Bot Logic (Refactored for Multithreading) ──────────────────
 def limbus_bot():
     local_last_grab = 0.0
     local_need_refresh = True
@@ -630,7 +748,7 @@ def limbus_bot():
             if DEBUG_MATCH:
                 debug_log.append("[Bot Check [2-A] - SpeechMenu] Action triggered.")
             click(match_results["speech_menu"], hold_ms=10)
-            time.sleep(CHECK_INTERVAL * 2)
+            time.sleep(0.5)
             local_screen_gray = refresh_screen()
             if local_screen_gray is None:
                 local_need_refresh = True
@@ -642,7 +760,7 @@ def limbus_bot():
                         "[Bot Check [2-B] - FastForward] Action triggered."
                     )
                 click(fast_forward_pt, hold_ms=10)
-                time.sleep(CHECK_INTERVAL * 2)
+                time.sleep(0.5)
                 local_screen_gray = refresh_screen()
                 if local_screen_gray is None:
                     local_need_refresh = True
@@ -666,10 +784,6 @@ def limbus_bot():
                     debug_log.append(
                         "[Bot Check [2-C] FAILED] Confirm (Speech) not found."
                     )
-            elif DEBUG_MATCH:
-                debug_log.append(
-                    "[Bot Check [2-C] INFO] Confirm (Speech) skipped due to Choice Needed."
-                )
             local_need_refresh = True
             continue
 
@@ -711,7 +825,7 @@ def limbus_bot():
                     )
                 action_taken_in_overlay_block = True
             if action_taken_in_overlay_block:
-                time.sleep(CHECK_INTERVAL * 2)
+                time.sleep(0.5)
                 local_need_refresh = True
                 continue
         confirm_button_to_click = (
@@ -725,7 +839,7 @@ def limbus_bot():
                     "[Bot Check [3-F] - General Confirm Button] Action triggered."
                 )
             click(confirm_button_to_click, hold_ms=10)
-            time.sleep(CHECK_INTERVAL * 2)
+            time.sleep(0.5)
             local_need_refresh = True
             continue
 
@@ -747,7 +861,7 @@ def limbus_bot():
                         "[Bot Check [4-B] - Continue (Abno)] Action triggered."
                     )
                 click(continue_abno_pt, hold_ms=10)
-                time.sleep(CHECK_INTERVAL * 2)
+                time.sleep(0.5)
                 local_screen_gray = refresh_screen()
                 if local_screen_gray is None:
                     local_need_refresh = True
@@ -761,7 +875,7 @@ def limbus_bot():
                             "[Bot Check [4-B.2] - Continue x2 (Abno)] Action triggered."
                         )
                     click(continue_abno_pt_2, hold_ms=10)
-                    time.sleep(CHECK_INTERVAL * 2)
+                    time.sleep(0.5)
                     local_screen_gray = refresh_screen()
                     if local_screen_gray is None:
                         local_need_refresh = True
@@ -820,7 +934,7 @@ def limbus_bot():
             if DEBUG_MATCH:
                 debug_log.append("[Bot Check [6] - Enter Encounter] Action triggered.")
             click(match_results["enter"])
-            time.sleep(CHECK_INTERVAL * 2)
+            time.sleep(0.5)
             local_need_refresh = True
             continue
 
@@ -846,7 +960,6 @@ def limbus_bot():
                 debug_log.append(
                     "[Bot Batch] No high-priority actions from primary checks this cycle."
                 )
-
         if lux_thread:
             if DEBUG_MATCH:
                 debug_log.append("[Bot Mode Start - Thread Luxcavation]")
@@ -1063,63 +1176,88 @@ def limbus_bot():
 
 # ──────────────────────── Supervisor / hotkey wrapper ──────────────────
 def main():
-    global TEMPLATES, delay_ms, CHECK_INTERVAL  # Make delay_ms and CHECK_INTERVAL global for updating from config
+    # --- SET CUSTOM EXCEPTION HOOK AT THE VERY BEGINNING OF MAIN ---
+    sys.excepthook = handle_exception
+
+    # --- Initialize PyAutoGUI Settings AFTER checking it's not None ---
+    if pyautogui is None:
+        critical_error_msg = (
+            "CRITICAL: PyAutoGUI module could not be loaded. Bot cannot function."
+        )
+        print(critical_error_msg, file=sys.stderr)
+        # Try to log this critical startup failure
+        try:
+            handle_exception(RuntimeError, RuntimeError(critical_error_msg), None)
+        except:
+            pass  # Avoid crashing the crash handler itself
+        sys.exit(1)  # Exit: pyautogui is essential
+
+    pyautogui.FAILSAFE = True
+    pyautogui.PAUSE = 0.05
+
+    global TEMPLATES, delay_ms, CHECK_INTERVAL, APPLICATION_BASE_PATH
+    # APPLICATION_BASE_PATH is already defined at module level after get_application_path
     TEMPLATES = load_templates()
     if not TEMPLATES:
-        print("CRITICAL: No templates loaded. Bot cannot function. Exiting.")
-        debug_log.append("CRITICAL: No templates loaded. Bot cannot function. Exiting.")
+        critical_error_msg = (
+            "CRITICAL: No templates loaded. Bot cannot function. Exiting."
+        )
+        print(critical_error_msg, file=sys.stderr)
+        debug_log.append(critical_error_msg)
+        try:
+            handle_exception(RuntimeError, RuntimeError(critical_error_msg), None)
+        except:
+            pass
         return
 
-    config_path = resource_path("roi_thresholds.json")
+    # Use APPLICATION_BASE_PATH for the config file
+    config_file_name = "saved_user_vars.json"
+    config_path = os.path.join(APPLICATION_BASE_PATH, config_file_name)
+    
+    debug_log.append(f"Attempting to load config from: {config_path}") # Log attempt path
+
     if os.path.isfile(config_path):
         try:
-            with open(config_path) as fp:
+            with open(config_path, encoding="utf-8") as fp: 
                 saved_config = json.load(fp)
-            # Load general settings
             general_settings = saved_config.get("general_settings", {})
             loaded_delay_ms = general_settings.get("delay_ms")
             if isinstance(loaded_delay_ms, int):
-                delay_ms = max(10, loaded_delay_ms)  # Ensure minimum 10ms
+                delay_ms = max(10, loaded_delay_ms) 
                 CHECK_INTERVAL = delay_ms / 1000.0
                 debug_log.append(f"Loaded delay_ms: {delay_ms} from config.")
-
-            # Load template-specific settings
-            template_settings = saved_config.get(
-                "templates", {}
-            )  # Assuming templates are under a "templates" key
-            if (
-                not template_settings and "winrate" in saved_config
-            ):  # Legacy format check (templates at root)
-                template_settings = saved_config
-
+            template_settings = saved_config.get("templates", {}) 
+            if not template_settings and "winrate" in saved_config: 
+                 template_settings = saved_config 
             for name, vals in template_settings.items():
-                if name in TEMPLATE_SPEC:
-                    base_cfg, _, _ = TEMPLATE_SPEC[name]
+                if name in TEMPLATE_SPEC: 
+                    base_cfg, _, _ = TEMPLATE_SPEC[name] 
                     new_thresh = vals.get("threshold", TEMPLATE_SPEC[name][1])
                     new_roi_list = vals.get("roi")
-                    new_roi = (
-                        tuple(new_roi_list)
-                        if isinstance(new_roi_list, list)
-                        else TEMPLATE_SPEC[name][2]
-                    )
+                    new_roi = tuple(new_roi_list) if isinstance(new_roi_list, list) else TEMPLATE_SPEC[name][2]
                     TEMPLATE_SPEC[name] = (base_cfg, new_thresh, new_roi)
-            _refresh_templates_from_gui()
-            debug_log.append("Loaded template settings from roi_thresholds.json")
-        except Exception as e:
-            debug_log.append(
-                f"Error loading roi_thresholds.json: {e}. Using default specs."
-            )
-    else:
-        debug_log.append("roi_thresholds.json not found. Using default template specs.")
+            _refresh_templates_from_gui() 
+            debug_log.append(f"Loaded template settings from {config_path}")
+        except Exception as e: 
+            debug_log.append(f"Error loading {config_path}: {e}. Using default specs.")
+            print(f"Error loading config: {e}", file=sys.stderr) 
+    else: 
+        debug_log.append(f"{config_path} not found. Using default template specs.")
+
+    # --- ADD A LINE HERE TO TEST CRASH LOGGING ---
+    # To test, uncomment the line below, run the script (or compiled .exe).
+    # It should crash, and a log file should appear in a 'crash_logs' directory.
+    # Make sure to re-comment it after testing!
+    # raise RuntimeError("This is a deliberate test crash to verify logging.") # <--- TEST CRASH LINE
 
     if launch_gui and get_tuner:
         print("Launching GUI...")
-        launch_gui(  # Ensure argument names match what multithreaded_gui_config.py expects
+        launch_gui(
             template_spec_from_bot=TEMPLATE_SPEC,
-            default_template_spec_for_reset=DEFAULT_TEMPLATE_SPEC,  # Pass the original default spec
+            default_template_spec_for_reset=DEFAULT_TEMPLATE_SPEC,
             refresh_templates_callback=_refresh_templates_from_gui,
             pause_event_from_bot=pause_event,
-            initial_delay_ms=delay_ms,  # Pass current delay_ms (possibly loaded from config)
+            initial_delay_ms=delay_ms,
             initial_is_HDR=is_HDR,
             initial_debug=debug_flag,
             initial_text_skip=text_skip,
@@ -1127,7 +1265,7 @@ def main():
             initial_lux_EXP=lux_EXP,
             initial_mirror_full_auto=full_auto_mirror,
             set_delay_ms_cb=set_delay_ms_config,
-            set_hdr_preview_cb=set_hdr_preview_config,  # For GUI preview
+            set_hdr_preview_cb=set_hdr_preview_config,
             set_debug_mode_cb=set_debug_mode_config,
             set_text_skip_cb=set_text_skip_config,
             set_lux_thread_cb=set_lux_thread_config,
@@ -1138,16 +1276,29 @@ def main():
             get_debug_log_fn=lambda: debug_log,
         )
     else:
-        print(
-            "NOTE: GUI launch is skipped as launch_gui or get_tuner is not available."
+        # If GUI cannot be launched (because launch_gui or get_tuner is None due to import failure),
+        # print an error and exit. This enforces the "no headless" requirement.
+        error_message = (
+            "CRITICAL ERROR: GUI could not be launched. Bot requires GUI to run."
         )
-        debug_log.append("GUI launch skipped.")
+        print(error_message, file=sys.stderr)
+        debug_log.append(error_message)
+        if "handle_exception" in globals() and callable(handle_exception):
+            try:
+                handle_exception(RuntimeError, RuntimeError("GUI launch failed."), None)
+            except Exception as he_e:
+                print(
+                    f"Error trying to use custom exception handler for GUI launch failure: {he_e}",
+                    file=sys.stderr,
+                )
+        sys.exit(1)  # Exit with a non-zero status code
 
+    # --- Hotkey Definitions (ensure correct method names from GUI if interacting) ---
     def _on_pause_hotkey():
         tuner = get_tuner()
         if tuner and hasattr(tuner, "_toggle_bot_pause_state"):
             tuner.after(0, tuner._toggle_bot_pause_state)
-        else:
+        else:  # This fallback might not be hit if GUI is mandatory
             if pause_event.is_set():
                 pause_event.clear()
                 debug_log.append("Bot resumed via hotkey.")
@@ -1165,14 +1316,11 @@ def main():
     def _create_mode_toggle_hotkey_cb(
         setter_func, current_value_lambda, tuner_method_name_str
     ):
-        """Creates a hotkey callback that interacts with GUI if present, else direct state change."""
-
         def _callback_action():
             tuner = get_tuner()
             if tuner and hasattr(tuner, tuner_method_name_str):
-                # Let the Tuner's method handle Tkinter var update and calling the bot's setter
                 getattr(tuner, tuner_method_name_str)()
-            else:  # No GUI, or Tuner method not found, call bot's setter directly
+            else:  # Fallback if no GUI (though script might exit earlier if GUI is mandatory)
                 setter_func(not current_value_lambda())
 
         return _callback_action
@@ -1229,34 +1377,11 @@ def main():
     if DEBUG_MATCH:
         print("Debug logs will print to console if no GUI, or in GUI log panel.")
 
-    if DEBUG_MATCH and not (launch_gui and get_tuner()):
-
-        def print_debug_log_headless():
-            last_printed_len = 0
-            while True:
-                time.sleep(1)
-                current_len = len(debug_log)
-                if current_len > last_printed_len:
-                    for i in range(last_printed_len, current_len):
-                        print(f"LOG: {debug_log[i]}")
-                    last_printed_len = current_len
-
-        log_printer_thread = threading.Thread(
-            target=print_debug_log_headless, daemon=True
-        )
-        log_printer_thread.start()
-
     try:
         limbus_bot()
     except KeyboardInterrupt:
         debug_log.append("Bot terminated by user (KeyboardInterrupt).")
         print("\nBot terminated by user.")
-    except Exception as e:
-        debug_log.append(f"Bot crashed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        print(f"Bot crashed: {e}")
     finally:
         debug_log.append("Bot shutting down.")
         print("Bot shutting down.")

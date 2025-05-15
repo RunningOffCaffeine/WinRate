@@ -23,6 +23,7 @@ Dependencies: opencv-python, numpy, pyautogui, keyboard, pygetwindow, mss
 # ── std-lib imports ───────────────────────────────────────────────────
 import os
 import threading
+import traceback
 import time
 import sys
 import json
@@ -609,7 +610,7 @@ def limbus_bot():
                 if DEBUG_MATCH:
                     debug_log.append("[Bot Check [2-A] - SpeechMenu] Action triggered.")
                 click(speech_menu_pt, hold_ms=10)
-                time.sleep(CHECK_INTERVAL * 2)
+                time.sleep(0.5)
                 local_screen_gray = refresh_screen()
                 if local_screen_gray is None:
                     local_need_refresh = True
@@ -624,7 +625,7 @@ def limbus_bot():
                             "[Bot Check [2-B] - FastForward] Action triggered."
                         )
                     click(fast_forward_pt, hold_ms=10)
-                    time.sleep(CHECK_INTERVAL * 2)
+                    time.sleep(0.5)
                     local_screen_gray = refresh_screen()
                     if local_screen_gray is None:
                         local_need_refresh = True
@@ -702,7 +703,7 @@ def limbus_bot():
                     )
                 action_taken_in_overlay_block = True
             if action_taken_in_overlay_block:
-                time.sleep(CHECK_INTERVAL * 2)
+                time.sleep(0.5)
                 local_need_refresh = True
                 continue
 
@@ -720,7 +721,7 @@ def limbus_bot():
                     "[Bot Check [3-F] - General Confirm Button] Action triggered."
                 )
             click(confirm_button_to_click, hold_ms=10)
-            time.sleep(CHECK_INTERVAL * 2)
+            time.sleep(0.5)
             local_need_refresh = True
             continue
         elif DEBUG_MATCH and not action_taken_in_overlay_block:
@@ -748,7 +749,7 @@ def limbus_bot():
                         "[Bot Check [4-B] - Continue (Abno)] Action triggered."
                     )
                 click(continue_abno_pt, hold_ms=10)
-                time.sleep(CHECK_INTERVAL * 2)
+                time.sleep(0.5)
                 local_screen_gray = refresh_screen()
                 if local_screen_gray is None:
                     local_need_refresh = True
@@ -762,7 +763,7 @@ def limbus_bot():
                             "[Bot Check [4-B.2] - Continue x2 (Abno)] Action triggered."
                         )
                     click(continue_abno_pt_2, hold_ms=10)
-                    time.sleep(CHECK_INTERVAL * 2)
+                    time.sleep(0.5)
                     local_screen_gray = refresh_screen()
                     if local_screen_gray is None:
                         local_need_refresh = True
@@ -827,7 +828,7 @@ def limbus_bot():
             if DEBUG_MATCH:
                 debug_log.append("[Bot Check [6] - Enter Encounter] Action triggered.")
             click(enter_encounter_pt)
-            time.sleep(CHECK_INTERVAL * 2)
+            time.sleep(0.5)
             local_need_refresh = True
             continue
         elif DEBUG_MATCH:
