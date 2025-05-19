@@ -17,16 +17,28 @@ SET NORMAL_ICON_PATH=normal.ico
 SET MULTITHREADED_ICON_PATH=multi.ico
 
 SET DIST_FOLDER=dist
+SET BUILD_FOLDER=build
 SET ASSET_FILES=*.png
 SET CONFIG_JSON=saved_user_vars.json
 ECHO Configuration variables set.
 
-REM --- Icon Check (Optional but Recommended) ---
+REM --- Aggressive Clean Up ---
+ECHO Cleaning up previous build artifacts...
+IF EXIST "%DIST_FOLDER%" (
+    ECHO Removing existing %DIST_FOLDER% directory...
+    RD /S /Q "%DIST_FOLDER%"
+)
+IF EXIST "%BUILD_FOLDER%" (
+    ECHO Removing existing %BUILD_FOLDER% directory...
+    RD /S /Q "%BUILD_FOLDER%"
+)
+ECHO Cleanup complete.
+
+REM --- Icon Check ---
 ECHO Checking for icon files...
 SET NORMAL_ICON_OPTION_CMD=
 IF NOT EXIST "%NORMAL_ICON_PATH%" (
     ECHO WARNING: Icon file for NORMAL bot NOT FOUND at "%NORMAL_ICON_PATH%"
-    ECHO The default PyInstaller icon will be used.
 ) ELSE (
     ECHO Found icon for NORMAL bot: %NORMAL_ICON_PATH%
     SET NORMAL_ICON_OPTION_CMD=--icon="%NORMAL_ICON_PATH%"
@@ -35,17 +47,17 @@ IF NOT EXIST "%NORMAL_ICON_PATH%" (
 SET MULTITHREADED_ICON_OPTION_CMD=
 IF NOT EXIST "%MULTITHREADED_ICON_PATH%" (
     ECHO WARNING: Icon file for MULTITHREADED bot NOT FOUND at "%MULTITHREADED_ICON_PATH%"
-    ECHO The default PyInstaller icon will be used.
 ) ELSE (
     ECHO Found icon for MULTITHREADED bot: %MULTITHREADED_ICON_PATH%
     SET MULTITHREADED_ICON_OPTION_CMD=--icon="%MULTITHREADED_ICON_PATH%"
 )
 ECHO Icon check complete.
+
 ECHO NORMAL_ICON_OPTION_CMD is: [%NORMAL_ICON_OPTION_CMD%]
 ECHO MULTITHREADED_ICON_OPTION_CMD is: [%MULTITHREADED_ICON_OPTION_CMD%]
 
 
-REM Create dist folder if it doesn't exist
+REM Create dist folder (it was just deleted, so recreate)
 IF NOT EXIST %DIST_FOLDER% (
     ECHO Creating %DIST_FOLDER% directory...
     MKDIR %DIST_FOLDER%
