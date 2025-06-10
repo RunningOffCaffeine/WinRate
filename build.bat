@@ -1,15 +1,13 @@
 @echo OFF
 ECHO Starting compile_bots.bat...
-ECHO This window should remain open due to PAUSE statements for debugging.
-ECHO If it closes before the first 'Press any key to continue', there might be an issue with how the .bat file is launched or a very early syntax error.
+ECHO.
 
 REM --- User Selection ---
 :ChooseVersion
-ECHO.
 ECHO Which version do you want to build?
-ECHO   1. NORMAL (winrate.py)
+ECHO   1. NORMAL (winrate_original.py) [DEPRECATED]
 ECHO   2. MULTITHREADED (multithreaded_winrate.py)
-SET /P BUILD_CHOICE=Enter 1 or 2 and press ENTER: 
+SET /P BUILD_CHOICE="Enter 1 or 2 and press ENTER: "
 IF "%BUILD_CHOICE%"=="1" (
     SET BUILD_TARGET=NORMAL
 ) ELSE IF "%BUILD_CHOICE%"=="2" (
@@ -21,14 +19,18 @@ IF "%BUILD_CHOICE%"=="1" (
 ECHO Selected: %BUILD_TARGET%
 ECHO.
 
-REM Ensure PyInstaller is installed for Python 3.13: py -3.13 -m pip install pyinstaller
-
 REM --- Configuration ---
 ECHO Setting configuration variables...
 SET PYTHON_VERSION_SPECIFIER=-3.13
 
-REM Define icon paths - REPLACE THESE with actual paths or ensure files are in the same directory
+REM Define script and exe names WITHOUT internal quotes
+SET NORMAL_SCRIPT_NAME=winrate_original.py
+SET NORMAL_EXE_NAME=LimbusBot_Normal
 SET NORMAL_ICON_PATH=normal.ico
+
+SET MULTITHREADED_SCRIPT_NAME=multithreaded_winrate.py
+REM Using a simplified name is more robust for batch scripting.
+SET MULTITHREADED_EXE_NAME=Limbus_Bot_Multithreaded
 SET MULTITHREADED_ICON_PATH=multi.ico
 
 SET DIST_FOLDER=dist
@@ -37,18 +39,15 @@ SET ASSET_FILES=*.png
 SET CONFIG_JSON=saved_user_vars.json
 ECHO Configuration variables set.
 
-REM --- Clean Up dist Folder (Delete everything except .json) ---
-ECHO Cleaning up %DIST_FOLDER% folder (except .json files)...
+REM --- Clean Up dist Folder ---
+ECHO Cleaning up %DIST_FOLDER% folder...
 IF EXIST "%DIST_FOLDER%" (
-    PUSHD "%DIST_FOLDER%"
-    FOR %%F IN (*.*) DO (
-        IF /I NOT "%%~xF"==".json" DEL "%%F"
-    )
-    POPD
-) ELSE (
-    ECHO %DIST_FOLDER% folder does not exist, skipping cleanup.
+    ECHO Deleting contents of %DIST_FOLDER%...
+    RMDIR /S /Q "%DIST_FOLDER%"
 )
-ECHO dist folder cleanup complete.
+ECHO Creating fresh %DIST_FOLDER% directory...
+MKDIR "%DIST_FOLDER%"
+ECHO Cleanup complete.
 
 REM --- Icon Check ---
 ECHO Checking for icon files...
@@ -69,125 +68,84 @@ IF NOT EXIST "%MULTITHREADED_ICON_PATH%" (
 )
 ECHO Icon check complete.
 
-ECHO NORMAL_ICON_OPTION_CMD is: [%NORMAL_ICON_OPTION_CMD%]
-ECHO MULTITHREADED_ICON_OPTION_CMD is: [%MULTITHREADED_ICON_OPTION_CMD%]
-
-REM Create dist folder (it was just deleted, so recreate)
-IF NOT EXIST %DIST_FOLDER% (
-    ECHO Creating %DIST_FOLDER% directory...
-    MKDIR %DIST_FOLDER%
-)
-
-ECHO.
-ECHO --- Environment Diagnostics (Brief) ---
+REM --- Environment Diagnostics ---
 ECHO Verifying Python executable for %PYTHON_VERSION_SPECIFIER%:
 py %PYTHON_VERSION_SPECIFIER% -c "import sys; print(f'Using Python Executable: {sys.executable}')"
 ECHO Checking if PyInstaller can be imported by %PYTHON_VERSION_SPECIFIER%:
 py %PYTHON_VERSION_SPECIFIER% -c "import PyInstaller; print(f'PyInstaller version: {PyInstaller.__version__} from {PyInstaller.__file__}')"
-IF %ERRORLEVEL% NEQ 0 (
-    ECHO WARNING: PyInstaller module could not be imported directly by 'py %PYTHON_VERSION_SPECIFIER% -c "import PyInstaller"'.
-    ECHO This might indicate an issue with the Python environment used by the batch script.
-)
-ECHO --- End Environment Diagnostics ---
+IF %ERRORLEVEL% NEQ 0 ( ECHO WARNING: PyInstaller module could not be imported directly. )
 ECHO.
 
+REM --- Main Compilation Logic ---
 IF "%BUILD_TARGET%"=="NORMAL" (
-    ECHO Compiling NORMAL version (winrate.py)...
-    SET PYINSTALLER_CMD_BASE=py %PYTHON_VERSION_SPECIFIER% -m PyInstaller --noconfirm --clean --windowed --name "Limbus Bot" --distpath .\%DIST_FOLDER%
-    SET PYINSTALLER_CMD_DATA=
-    IF EXIST "%CONFIG_JSON%" (
-        ECHO Including config file: %CONFIG_JSON%
-        SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%CONFIG_JSON%;."
-    ) ELSE (
-        ECHO WARNING: Config file %CONFIG_JSON% not found. Compiling without it.
-    )
-    SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%ASSET_FILES%;."
-    SET PYINSTALLER_CMD_ICON=
-    IF DEFINED NORMAL_ICON_OPTION_CMD (
-        ECHO Including icon: %NORMAL_ICON_OPTION_CMD%
-        SET PYINSTALLER_CMD_ICON=%NORMAL_ICON_OPTION_CMD%
-    ) ELSE (
-        ECHO Compiling NORMAL version without specific icon.
-    )
-    ECHO ---
-    ECHO EXECUTING: %PYINSTALLER_CMD_BASE% %PYINSTALLER_CMD_ICON% %PYINSTALLER_CMD_DATA% "winrate.py"
-    ECHO ---
-    %PYINSTALLER_CMD_BASE% %PYINSTALLER_CMD_ICON% %PYINSTALLER_CMD_DATA% "winrate.py"
-    IF %ERRORLEVEL% NEQ 0 (
-        ECHO --------------------------------------------------------------------
-        ECHO ERROR: PyInstaller failed for NORMAL version.
-        ECHO Please check the output above for specific error messages.
-        ECHO Ensure Python %PYTHON_VERSION_SPECIFIER% is correctly configured and PyInstaller is installed for it.
-        ECHO You can try: py %PYTHON_VERSION_SPECIFIER% -m pip install pyinstaller --force-reinstall
-        ECHO --------------------------------------------------------------------
-        GOTO ErrorOccurred
-    ) ELSE (
-        ECHO NORMAL version compiled successfully to .\%DIST_FOLDER%\Limbus Bot.exe
-        IF EXIST "Limbus Bot.spec" (
-            ECHO Deleting Limbus Bot.spec...
-            DEL "Limbus Bot.spec"
-        )
-    )
-    ECHO Finished NORMAL version compilation attempt.
+    GOTO CompileNormal
 ) ELSE (
-    ECHO Compiling MULTITHREADED version (multithreaded_winrate.py)...
-    SET PYINSTALLER_CMD_BASE=py %PYTHON_VERSION_SPECIFIER% -m PyInstaller --noconfirm --clean --windowed --name "Limbus Bot (Multithreaded)" --distpath .\%DIST_FOLDER%
-    SET PYINSTALLER_CMD_DATA=
-    IF EXIST "%CONFIG_JSON%" (
-        ECHO Including config file: %CONFIG_JSON%
-        SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%CONFIG_JSON%;."
-    ) ELSE (
-        ECHO WARNING: Config file %CONFIG_JSON% not found. Compiling without it for MULTITHREADED version.
-    )
-    SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%ASSET_FILES%;."
-    SET PYINSTALLER_CMD_ICON=
-    IF DEFINED MULTITHREADED_ICON_OPTION_CMD (
-        ECHO Including icon: %MULTITHREADED_ICON_OPTION_CMD%
-        SET PYINSTALLER_CMD_ICON=%MULTITHREADED_ICON_OPTION_CMD%
-    ) ELSE (
-        ECHO Compiling MULTITHREADED version without specific icon.
-    )
-    ECHO ---
-    ECHO EXECUTING: %PYINSTALLER_CMD_BASE% %PYINSTALLER_CMD_ICON% %PYINSTALLER_CMD_DATA% "multithreaded_winrate.py"
-    ECHO ---
-    %PYINSTALLER_CMD_BASE% %PYINSTALLER_CMD_ICON% %PYINSTALLER_CMD_DATA% "multithreaded_winrate.py"
-    IF %ERRORLEVEL% NEQ 0 (
-        ECHO --------------------------------------------------------------------
-        ECHO ERROR: PyInstaller failed for MULTITHREADED version.
-        ECHO Please check the output above for specific error messages.
-        ECHO Ensure Python %PYTHON_VERSION_SPECIFIER% is correctly configured and PyInstaller is installed for it.
-        ECHO You can try: py %PYTHON_VERSION_SPECIFIER% -m pip install pyinstaller --force-reinstall
-        ECHO --------------------------------------------------------------------
-        GOTO ErrorOccurred
-    ) ELSE (
-        ECHO MULTITHREADED version compiled successfully to .\%DIST_FOLDER%\Limbus Bot (Multithreaded).exe
-        IF EXIST "Limbus Bot (Multithreaded).spec" (
-            ECHO Deleting "Limbus Bot (Multithreaded).spec"...
-            DEL "Limbus Bot (Multithreaded).spec"
-        )
-    )
-    ECHO Finished MULTITHREADED version compilation attempt.
+    GOTO CompileMulti
 )
 
-ECHO.
-ECHO Compilation process finished successfully (or reached this point after an error was handled by GOTO).
+:CompileNormal
+ECHO Compiling NORMAL version...
+SET PYINSTALLER_CMD_BASE=py %PYTHON_VERSION_SPECIFIER% -m PyInstaller --noconfirm --clean --windowed --name "%NORMAL_EXE_NAME%" --distpath .\%DIST_FOLDER%
+SET SCRIPT_TO_COMPILE=%NORMAL_SCRIPT_NAME%
+SET ICON_OPTION=%NORMAL_ICON_OPTION_CMD%
+GOTO ExecuteCompilation
+
+:CompileMulti
+ECHO Compiling MULTITHREADED version...
+SET PYINSTALLER_CMD_BASE=py %PYTHON_VERSION_SPECIFIER% -m PyInstaller --noconfirm --clean --windowed --name "%MULTITHREADED_EXE_NAME%" --distpath .\%DIST_FOLDER%
+SET SCRIPT_TO_COMPILE=%MULTITHREADED_SCRIPT_NAME%
+SET ICON_OPTION=%MULTITHREADED_ICON_OPTION_CMD%
+GOTO ExecuteCompilation
+
+:ExecuteCompilation
+SET PYINSTALLER_CMD_DATA=
+IF EXIST "%CONFIG_JSON%" (
+    ECHO Including config file: %CONFIG_JSON%
+    SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%CONFIG_JSON%;."
+) ELSE (
+    ECHO WARNING: Config file %CONFIG_JSON% not found. Compiling without it.
+)
+SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%ASSET_FILES%;."
+
+ECHO ---
+ECHO EXECUTING: %PYINSTALLER_CMD_BASE% %ICON_OPTION% %PYINSTALLER_CMD_DATA% %SCRIPT_TO_COMPILE%
+ECHO ---
+%PYINSTALLER_CMD_BASE% %ICON_OPTION% %PYINSTALLER_CMD_DATA% %SCRIPT_TO_COMPILE%
+
+IF %ERRORLEVEL% NEQ 0 (
+    ECHO --------------------------------------------------------------------
+    ECHO ERROR: PyInstaller failed for %BUILD_TARGET% version.
+    ECHO Please check the output above for specific error messages.
+    ECHO --------------------------------------------------------------------
+    GOTO ErrorOccurred
+) ELSE (
+    ECHO %BUILD_TARGET% version compiled successfully.
+    IF EXIST "%BUILD_TARGET_EXE_NAME%.spec" (
+        ECHO Deleting .spec file...
+        DEL "%BUILD_TARGET_EXE_NAME%.spec"
+    )
+)
+ECHO Finished compilation attempt.
 GOTO EndScript
+
 
 :ErrorOccurred
 ECHO.
 ECHO An error occurred during compilation.
-ECHO The window will remain open (due to PAUSE). Press any key to close AFTER reviewing errors.
+ECHO The window will remain open. Press any key to close AFTER reviewing errors.
 PAUSE
 EXIT /B 1
 
 :EndScript
 ECHO.
-ECHO Cleaning up any remaining .spec files...
+ECHO Cleaning up any remaining build artifacts...
 IF EXIST "*.spec" (
     DEL "*.spec"
 )
+IF EXIST "%BUILD_FOLDER%" (
+    RMDIR /S /Q "%BUILD_FOLDER%"
+)
 ECHO.
-ECHO Script finished. The window will remain open (due to PAUSE) for you to review the output.
-ECHO Press any key to close this window.
+ECHO Script finished. The window will remain open. Press any key to close.
 PAUSE
-EXIT /K
+EXIT /B 0

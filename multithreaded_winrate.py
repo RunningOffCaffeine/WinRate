@@ -1212,8 +1212,20 @@ def main():
 
     # Use APPLICATION_BASE_PATH for the config file
     config_file_name = "saved_user_vars.json"
-    config_path = os.path.join(APPLICATION_BASE_PATH, config_file_name)
-    
+
+    # If running as PyInstaller bundle, check _internal folder for config
+    if getattr(sys, "frozen", False):
+        # Try _internal folder first (PyInstaller --add-data puts files here)
+        internal_config_path = os.path.join(
+            APPLICATION_BASE_PATH, "_internal", config_file_name
+        )
+        if os.path.isfile(internal_config_path):
+            config_path = internal_config_path
+        else:
+            config_path = os.path.join(APPLICATION_BASE_PATH, config_file_name)
+    else:
+        config_path = os.path.join(APPLICATION_BASE_PATH, config_file_name)
+
     debug_log.append(f"Attempting to load config from: {config_path}") # Log attempt path
 
     if os.path.isfile(config_path):
@@ -1228,7 +1240,7 @@ def main():
                 debug_log.append(f"Loaded delay_ms: {delay_ms} from config.")
             template_settings = saved_config.get("templates", {}) 
             if not template_settings and "winrate" in saved_config: 
-                 template_settings = saved_config 
+                template_settings = saved_config 
             for name, vals in template_settings.items():
                 if name in TEMPLATE_SPEC: 
                     base_cfg, _, _ = TEMPLATE_SPEC[name] 
