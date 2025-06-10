@@ -3,7 +3,22 @@ ECHO Starting compile_bots.bat...
 ECHO This window should remain open due to PAUSE statements for debugging.
 ECHO If it closes before the first 'Press any key to continue', there might be an issue with how the .bat file is launched or a very early syntax error.
 
-ECHO Creating executables for Limbus Company Bot...
+REM --- User Selection ---
+:ChooseVersion
+ECHO.
+ECHO Which version do you want to build?
+ECHO   1. NORMAL (winrate.py)
+ECHO   2. MULTITHREADED (multithreaded_winrate.py)
+SET /P BUILD_CHOICE=Enter 1 or 2 and press ENTER: 
+IF "%BUILD_CHOICE%"=="1" (
+    SET BUILD_TARGET=NORMAL
+) ELSE IF "%BUILD_CHOICE%"=="2" (
+    SET BUILD_TARGET=MULTI
+) ELSE (
+    ECHO Invalid choice. Please enter 1 or 2.
+    GOTO ChooseVersion
+)
+ECHO Selected: %BUILD_TARGET%
 ECHO.
 
 REM Ensure PyInstaller is installed for Python 3.13: py -3.13 -m pip install pyinstaller
@@ -22,17 +37,18 @@ SET ASSET_FILES=*.png
 SET CONFIG_JSON=saved_user_vars.json
 ECHO Configuration variables set.
 
-REM --- Aggressive Clean Up ---
-ECHO Cleaning up previous build artifacts...
+REM --- Clean Up dist Folder (Delete everything except .json) ---
+ECHO Cleaning up %DIST_FOLDER% folder (except .json files)...
 IF EXIST "%DIST_FOLDER%" (
-    ECHO Removing existing %DIST_FOLDER% directory...
-    RD /S /Q "%DIST_FOLDER%"
+    PUSHD "%DIST_FOLDER%"
+    FOR %%F IN (*.*) DO (
+        IF /I NOT "%%~xF"==".json" DEL "%%F"
+    )
+    POPD
+) ELSE (
+    ECHO %DIST_FOLDER% folder does not exist, skipping cleanup.
 )
-IF EXIST "%BUILD_FOLDER%" (
-    ECHO Removing existing %BUILD_FOLDER% directory...
-    RD /S /Q "%BUILD_FOLDER%"
-)
-ECHO Cleanup complete.
+ECHO dist folder cleanup complete.
 
 REM --- Icon Check ---
 ECHO Checking for icon files...
@@ -56,7 +72,6 @@ ECHO Icon check complete.
 ECHO NORMAL_ICON_OPTION_CMD is: [%NORMAL_ICON_OPTION_CMD%]
 ECHO MULTITHREADED_ICON_OPTION_CMD is: [%MULTITHREADED_ICON_OPTION_CMD%]
 
-
 REM Create dist folder (it was just deleted, so recreate)
 IF NOT EXIST %DIST_FOLDER% (
     ECHO Creating %DIST_FOLDER% directory...
@@ -76,98 +91,83 @@ IF %ERRORLEVEL% NEQ 0 (
 ECHO --- End Environment Diagnostics ---
 ECHO.
 
-
-ECHO Compiling NORMAL version (winrate.py)...
-ECHO Using: py %PYTHON_VERSION_SPECIFIER% -m PyInstaller ...
-SET PYINSTALLER_CMD_NORMAL_BASE=py %PYTHON_VERSION_SPECIFIER% -m PyInstaller --noconfirm --clean --onefile --windowed --name "Limbus Bot" --distpath .\%DIST_FOLDER%
-
-SET PYINSTALLER_CMD_NORMAL_DATA=
-IF EXIST "%CONFIG_JSON%" (
-    ECHO Including config file: %CONFIG_JSON%
-    SET PYINSTALLER_CMD_NORMAL_DATA=%PYINSTALLER_CMD_NORMAL_DATA% --add-data "%CONFIG_JSON%;."
-) ELSE (
-    ECHO WARNING: Config file %CONFIG_JSON% not found. Compiling without it.
-)
-SET PYINSTALLER_CMD_NORMAL_DATA=%PYINSTALLER_CMD_NORMAL_DATA% --add-data "%ASSET_FILES%;."
-
-SET PYINSTALLER_CMD_NORMAL_ICON=
-IF DEFINED NORMAL_ICON_OPTION_CMD (
-    ECHO Including icon: %NORMAL_ICON_OPTION_CMD%
-    SET PYINSTALLER_CMD_NORMAL_ICON=%NORMAL_ICON_OPTION_CMD%
-) ELSE (
-    ECHO Compiling NORMAL version without specific icon.
-)
-
-ECHO ---
-ECHO EXECUTING NORMAL: %PYINSTALLER_CMD_NORMAL_BASE% %PYINSTALLER_CMD_NORMAL_ICON% %PYINSTALLER_CMD_NORMAL_DATA% "winrate.py"
-ECHO ---
-REM Execute the constructed command for NORMAL version
-%PYINSTALLER_CMD_NORMAL_BASE% %PYINSTALLER_CMD_NORMAL_ICON% %PYINSTALLER_CMD_NORMAL_DATA% "winrate.py"
-
-
-IF %ERRORLEVEL% NEQ 0 (
-    ECHO --------------------------------------------------------------------
-    ECHO ERROR: PyInstaller failed for NORMAL version.
-    ECHO Please check the output above for specific error messages.
-    ECHO Ensure Python %PYTHON_VERSION_SPECIFIER% is correctly configured and PyInstaller is installed for it.
-    ECHO You can try: py %PYTHON_VERSION_SPECIFIER% -m pip install pyinstaller --force-reinstall
-    ECHO --------------------------------------------------------------------
-    GOTO ErrorOccurred
-) ELSE (
-    ECHO NORMAL version compiled successfully to .\%DIST_FOLDER%\Limbus Bot.exe
-    IF EXIST "Limbus Bot.spec" (
-        ECHO Deleting Limbus Bot.spec...
-        DEL "Limbus Bot.spec"
+IF "%BUILD_TARGET%"=="NORMAL" (
+    ECHO Compiling NORMAL version (winrate.py)...
+    SET PYINSTALLER_CMD_BASE=py %PYTHON_VERSION_SPECIFIER% -m PyInstaller --noconfirm --clean --windowed --name "Limbus Bot" --distpath .\%DIST_FOLDER%
+    SET PYINSTALLER_CMD_DATA=
+    IF EXIST "%CONFIG_JSON%" (
+        ECHO Including config file: %CONFIG_JSON%
+        SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%CONFIG_JSON%;."
+    ) ELSE (
+        ECHO WARNING: Config file %CONFIG_JSON% not found. Compiling without it.
     )
-)
-ECHO Finished NORMAL version compilation attempt.
-
-ECHO.
-ECHO Compiling MULTITHREADED version (multithreaded_winrate.py)...
-ECHO Using: py %PYTHON_VERSION_SPECIFIER% -m PyInstaller ...
-REM Using quotes around the --name value because it contains spaces and parentheses
-SET PYINSTALLER_CMD_MULTI_BASE=py %PYTHON_VERSION_SPECIFIER% -m PyInstaller --noconfirm --clean --onefile --windowed --name "Limbus Bot (Multithreaded)" --distpath .\%DIST_FOLDER%
-
-SET PYINSTALLER_CMD_MULTI_DATA=
-IF EXIST "%CONFIG_JSON%" (
-    ECHO Including config file: %CONFIG_JSON%
-    SET PYINSTALLER_CMD_MULTI_DATA=%PYINSTALLER_CMD_MULTI_DATA% --add-data "%CONFIG_JSON%;."
-) ELSE (
-    ECHO WARNING: Config file %CONFIG_JSON% not found. Compiling without it for MULTITHREADED version.
-)
-SET PYINSTALLER_CMD_MULTI_DATA=%PYINSTALLER_CMD_MULTI_DATA% --add-data "%ASSET_FILES%;."
-
-SET PYINSTALLER_CMD_MULTI_ICON=
-IF DEFINED MULTITHREADED_ICON_OPTION_CMD (
-    ECHO Including icon: %MULTITHREADED_ICON_OPTION_CMD%
-    SET PYINSTALLER_CMD_MULTI_ICON=%MULTITHREADED_ICON_OPTION_CMD%
-) ELSE (
-    ECHO Compiling MULTITHREADED version without specific icon.
-)
-
-ECHO ---
-ECHO EXECUTING MULTI: %PYINSTALLER_CMD_MULTI_BASE% %PYINSTALLER_CMD_MULTI_ICON% %PYINSTALLER_CMD_MULTI_DATA% "multithreaded_winrate.py"
-ECHO ---
-REM Execute the constructed command for MULTITHREADED version
-%PYINSTALLER_CMD_MULTI_BASE% %PYINSTALLER_CMD_MULTI_ICON% %PYINSTALLER_CMD_MULTI_DATA% "multithreaded_winrate.py"
-
-
-IF %ERRORLEVEL% NEQ 0 (
-    ECHO --------------------------------------------------------------------
-    ECHO ERROR: PyInstaller failed for MULTITHREADED version.
-    ECHO Please check the output above for specific error messages.
-    ECHO Ensure Python %PYTHON_VERSION_SPECIFIER% is correctly configured and PyInstaller is installed for it.
-    ECHO You can try: py %PYTHON_VERSION_SPECIFIER% -m pip install pyinstaller --force-reinstall
-    ECHO --------------------------------------------------------------------
-    GOTO ErrorOccurred
-) ELSE (
-    ECHO MULTITHREADED version compiled successfully to .\%DIST_FOLDER%\Limbus Bot (Multithreaded).exe
-    IF EXIST "Limbus Bot (Multithreaded).spec" (
-        ECHO Deleting "Limbus Bot (Multithreaded).spec"...
-        DEL "Limbus Bot (Multithreaded).spec"
+    SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%ASSET_FILES%;."
+    SET PYINSTALLER_CMD_ICON=
+    IF DEFINED NORMAL_ICON_OPTION_CMD (
+        ECHO Including icon: %NORMAL_ICON_OPTION_CMD%
+        SET PYINSTALLER_CMD_ICON=%NORMAL_ICON_OPTION_CMD%
+    ) ELSE (
+        ECHO Compiling NORMAL version without specific icon.
     )
+    ECHO ---
+    ECHO EXECUTING: %PYINSTALLER_CMD_BASE% %PYINSTALLER_CMD_ICON% %PYINSTALLER_CMD_DATA% "winrate.py"
+    ECHO ---
+    %PYINSTALLER_CMD_BASE% %PYINSTALLER_CMD_ICON% %PYINSTALLER_CMD_DATA% "winrate.py"
+    IF %ERRORLEVEL% NEQ 0 (
+        ECHO --------------------------------------------------------------------
+        ECHO ERROR: PyInstaller failed for NORMAL version.
+        ECHO Please check the output above for specific error messages.
+        ECHO Ensure Python %PYTHON_VERSION_SPECIFIER% is correctly configured and PyInstaller is installed for it.
+        ECHO You can try: py %PYTHON_VERSION_SPECIFIER% -m pip install pyinstaller --force-reinstall
+        ECHO --------------------------------------------------------------------
+        GOTO ErrorOccurred
+    ) ELSE (
+        ECHO NORMAL version compiled successfully to .\%DIST_FOLDER%\Limbus Bot.exe
+        IF EXIST "Limbus Bot.spec" (
+            ECHO Deleting Limbus Bot.spec...
+            DEL "Limbus Bot.spec"
+        )
+    )
+    ECHO Finished NORMAL version compilation attempt.
+) ELSE (
+    ECHO Compiling MULTITHREADED version (multithreaded_winrate.py)...
+    SET PYINSTALLER_CMD_BASE=py %PYTHON_VERSION_SPECIFIER% -m PyInstaller --noconfirm --clean --windowed --name "Limbus Bot (Multithreaded)" --distpath .\%DIST_FOLDER%
+    SET PYINSTALLER_CMD_DATA=
+    IF EXIST "%CONFIG_JSON%" (
+        ECHO Including config file: %CONFIG_JSON%
+        SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%CONFIG_JSON%;."
+    ) ELSE (
+        ECHO WARNING: Config file %CONFIG_JSON% not found. Compiling without it for MULTITHREADED version.
+    )
+    SET PYINSTALLER_CMD_DATA=%PYINSTALLER_CMD_DATA% --add-data "%ASSET_FILES%;."
+    SET PYINSTALLER_CMD_ICON=
+    IF DEFINED MULTITHREADED_ICON_OPTION_CMD (
+        ECHO Including icon: %MULTITHREADED_ICON_OPTION_CMD%
+        SET PYINSTALLER_CMD_ICON=%MULTITHREADED_ICON_OPTION_CMD%
+    ) ELSE (
+        ECHO Compiling MULTITHREADED version without specific icon.
+    )
+    ECHO ---
+    ECHO EXECUTING: %PYINSTALLER_CMD_BASE% %PYINSTALLER_CMD_ICON% %PYINSTALLER_CMD_DATA% "multithreaded_winrate.py"
+    ECHO ---
+    %PYINSTALLER_CMD_BASE% %PYINSTALLER_CMD_ICON% %PYINSTALLER_CMD_DATA% "multithreaded_winrate.py"
+    IF %ERRORLEVEL% NEQ 0 (
+        ECHO --------------------------------------------------------------------
+        ECHO ERROR: PyInstaller failed for MULTITHREADED version.
+        ECHO Please check the output above for specific error messages.
+        ECHO Ensure Python %PYTHON_VERSION_SPECIFIER% is correctly configured and PyInstaller is installed for it.
+        ECHO You can try: py %PYTHON_VERSION_SPECIFIER% -m pip install pyinstaller --force-reinstall
+        ECHO --------------------------------------------------------------------
+        GOTO ErrorOccurred
+    ) ELSE (
+        ECHO MULTITHREADED version compiled successfully to .\%DIST_FOLDER%\Limbus Bot (Multithreaded).exe
+        IF EXIST "Limbus Bot (Multithreaded).spec" (
+            ECHO Deleting "Limbus Bot (Multithreaded).spec"...
+            DEL "Limbus Bot (Multithreaded).spec"
+        )
+    )
+    ECHO Finished MULTITHREADED version compilation attempt.
 )
-ECHO Finished MULTITHREADED version compilation attempt.
 
 ECHO.
 ECHO Compilation process finished successfully (or reached this point after an error was handled by GOTO).
