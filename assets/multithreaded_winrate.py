@@ -173,9 +173,9 @@ TEMPLATE_SPEC = {
     "chain_battle": ("Battle Chain", 0.82, (0.50, 0.50, 0.50, 0.50)),
     "skip": ("Skip", 0.80, (0.00, 0.30, 0.50, 0.40)),
     "enter": ("Enter", 0.80, (0.50, 0.60, 0.50, 0.40)),
-    "choice_needed": ("Choice Check", 0.70, (0.45, 0.20, 0.45, 0.15)),
+    "selectable": ("Choice Check", 0.70, (0.45, 0.20, 0.45, 0.15)),
     "fusion_check": ("Fusion Check", 0.70, (0.20, 0.00, 0.60, 0.30)),
-    "ego_check": ("EGO Check", 0.80, (0.33, 0.22, 0.33, 0.10)),
+    # "ego_check": ("EGO Check", 0.80, (0.33, 0.22, 0.33, 0.10)),
     "ego_get": ("EGO Get", 0.80, (0.33, 0.22, 0.33, 0.10)),
     "proceed": ("Proceed", 0.80, (0.50, 0.70, 0.50, 0.30)),
     "very_high": ("Very High", 0.85, (0.00, 0.70, 1.00, 0.30)),
@@ -277,7 +277,8 @@ def load_templates() -> dict[str, Tmpl]:
         corresponding_masks: list[np.ndarray | None] = []
         preferred_suffixes = (" SDR.png", " HDR.png")
         for suffix in preferred_suffixes:
-            path = resource_path(base + suffix)
+            # Look for the image inside the "images" subfolder
+            path = resource_path(os.path.join("images", base + suffix))
             if os.path.isfile(path):
                 try:
                     img_data = cv2.imread(path, cv2.IMREAD_UNCHANGED)
@@ -304,7 +305,8 @@ def load_templates() -> dict[str, Tmpl]:
                             f"Template Load: Error processing {path} for {name}: {e}"
                         )
         if not loaded_template_variants:
-            fallback_path = resource_path(base + ".png")
+            # Also check the fallback path inside the "images" subfolder
+            fallback_path = resource_path(os.path.join("images", base + ".png"))
             if os.path.isfile(fallback_path):
                 try:
                     img_data = cv2.imread(fallback_path, cv2.IMREAD_UNCHANGED)
@@ -340,7 +342,6 @@ def load_templates() -> dict[str, Tmpl]:
     if not out and DEBUG_MATCH:
         debug_log.append("Critical: No templates loaded at all.")
     return out
-
 
 def active_window_title() -> str:
     try:
@@ -398,10 +399,28 @@ def click(pt: tuple[int, int] | None, hold_ms: int = 0):
 
 
 def _refresh_templates_from_gui():
-    global TEMPLATES
-    TEMPLATES = load_templates()
-    if DEBUG_MATCH:
-        debug_log.append("Templates reloaded (triggered by GUI or settings change).")
+    """
+    Updates the 'thresh' and 'roi' in the live TEMPLATES dictionary
+    based on the latest values in TEMPLATE_SPEC, without reloading images from disk.
+    """
+    global TEMPLATES, TEMPLATE_SPEC, DEBUG_MATCH
+    
+    updated_count = 0
+    for name, tmpl_obj in TEMPLATES.items():
+        if name in TEMPLATE_SPEC:
+            # Get the latest settings from the spec dictionary (which the GUI modified)
+            _base_filename, new_thresh, new_roi = TEMPLATE_SPEC[name]
+
+            # If the settings are actually different, update them
+            if tmpl_obj.thresh != new_thresh or tmpl_obj.roi != new_roi:
+                # Use the efficient _replace method to create a new Tmpl tuple
+                # with the new values, while reusing the existing 'imgs' and 'masks'.
+                TEMPLATES[name] = tmpl_obj._replace(thresh=new_thresh, roi=new_roi)
+                updated_count += 1
+
+    if updated_count > 0 and DEBUG_MATCH:
+        # Log a more accurate and less frequent message
+        debug_log.append(f"Synchronized {updated_count} template setting(s) from GUI.")
 
 
 def set_delay_ms_config(ms: int):
@@ -602,9 +621,9 @@ PRIMARY_CHECK_TEMPLATES = [
     "confirm",
     "black_confirm",
     "black_confirm_v2",
-    "choice_needed",
+    "selectable",
     "fusion_check",
-    "ego_check",
+    # "ego_check",
     "ego_get",
     "skip",
     "battle",
@@ -769,10 +788,10 @@ def limbus_bot():
                 debug_log.append(
                     "[Bot Check [2-B] FAILED] FastForward (within SpeechMenu) not found."
                 )
-            choice_needed_for_skip_pt = best_match(
-                local_screen_gray, TEMPLATES["choice_needed"]
+            selectable_for_skip_pt = best_match(
+                local_screen_gray, TEMPLATES["selectable"]
             )
-            if not choice_needed_for_skip_pt:
+            if not selectable_for_skip_pt:
                 confirm_speech_pt = best_match(local_screen_gray, TEMPLATES["confirm"])
                 if confirm_speech_pt:
                     if DEBUG_MATCH:
@@ -787,29 +806,56 @@ def limbus_bot():
             local_need_refresh = True
             continue
 
-        choice_overlay_pt = match_results.get("choice_needed")
+        # [3] Overlay Logic
+        choice_overlay_pt = match_results.get("selectable")
         fusion_overlay_pt = match_results.get("fusion_check")
-        ego_overlay_pt = match_results.get("ego_check")
+        # ego_overlay_pt = match_results.get("ego_check")
         ego_get_overlay_pt = match_results.get("ego_get")
-        is_ego_block_active = ego_overlay_pt and not ego_get_overlay_pt
-        is_choice_skip_scenario = choice_overlay_pt and ego_get_overlay_pt
+
+        # is_ego_block_active = ego_overlay_pt and not ego_get_overlay_pt
         action_taken_in_overlay_block = False
+
         if not full_auto_mirror:
+            # HIGHEST PRIORITY: EGO Get screen sequence
             if ego_get_overlay_pt:
-                if is_choice_skip_scenario:
-                    if DEBUG_MATCH:
-                        debug_log.append(
-                            "[Bot Check [3-A] - EGO Get + Choice (Skip)] Action triggered."
-                        )
-                    keyboard.press_and_release("enter")
-                    action_taken_in_overlay_block = True
-                else:
-                    if DEBUG_MATCH:
-                        debug_log.append(
-                            "[Bot Check [3-B] - EGO Gift Received] Action triggered."
-                        )
-                    keyboard.press_and_release("enter")
-                    action_taken_in_overlay_block = True
+                if DEBUG_MATCH:
+                    debug_log.append(
+                        "[Bot Check [3-A] - EGO Gift Received] Action triggered."
+                    )
+                keyboard.press_and_release(
+                    "enter"
+                )  # Press enter to dismiss initial screen
+                time.sleep(0.5)  # Wait for UI to react
+
+                # Refresh screen and check for a confirm button
+                local_screen_gray = refresh_screen()
+                if local_screen_gray is not None:
+                    # **FIX:** Explicitly check each confirm button to ensure its score is logged
+                    # The results are stored before the 'or' check.
+                    confirm_pt = best_match(local_screen_gray, TEMPLATES["confirm"])
+                    black_confirm_pt = best_match(
+                        local_screen_gray, TEMPLATES["black_confirm"]
+                    )
+                    black_confirm_v2_pt = best_match(
+                        local_screen_gray, TEMPLATES["black_confirm_v2"]
+                    )
+
+                    # Now, check if any of them succeeded and get the point to click
+                    confirm_pt_after_ego = (
+                        confirm_pt or black_confirm_pt or black_confirm_v2_pt
+                    )
+
+                    if confirm_pt_after_ego:
+                        if DEBUG_MATCH:
+                            debug_log.append(
+                                "[Bot Check [3-B] - Confirm (after EGO Get)] Action triggered."
+                            )
+                        click(confirm_pt_after_ego, hold_ms=10)
+
+                local_need_refresh = True  # Screen has definitely changed
+                continue  # Restart main loop after this entire sequence
+
+            # If EGO Get was not found, check for other "waiting" overlays
             elif choice_overlay_pt:
                 if DEBUG_MATCH:
                     debug_log.append("[Bot Check [3-C] - Choice Needed] Waiting...")
@@ -818,16 +864,16 @@ def limbus_bot():
                 if DEBUG_MATCH:
                     debug_log.append("[Bot Check [3-D] - Fusion Check] Waiting...")
                 action_taken_in_overlay_block = True
-            elif is_ego_block_active:
-                if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [3-E] - EGO Select (Pending)] Waiting..."
-                    )
-                action_taken_in_overlay_block = True
+            # elif is_ego_block_active:
+            #     if DEBUG_MATCH: debug_log.append("[Bot Check [3-E] - EGO Select (Pending)] Waiting...")
+            #     action_taken_in_overlay_block = True
+
             if action_taken_in_overlay_block:
-                time.sleep(0.5)
+                time.sleep(CHECK_INTERVAL * 2)
                 local_need_refresh = True
                 continue
+
+        # General Confirm button check (if no overlay logic above was triggered)
         confirm_button_to_click = (
             match_results.get("black_confirm")
             or match_results.get("black_confirm_v2")
@@ -839,7 +885,7 @@ def limbus_bot():
                     "[Bot Check [3-F] - General Confirm Button] Action triggered."
                 )
             click(confirm_button_to_click, hold_ms=10)
-            time.sleep(0.5)
+            time.sleep(CHECK_INTERVAL * 2)
             local_need_refresh = True
             continue
 
@@ -850,6 +896,8 @@ def limbus_bot():
                 )
             click(match_results["skip"], hold_ms=10)
             time.sleep(0.2)
+            h_s, w_s = local_screen_gray.shape
+            pyautogui.moveTo(w_s // 2, int(h_s * 0.10))
             local_screen_gray = refresh_screen()
             if local_screen_gray is None:
                 local_need_refresh = True

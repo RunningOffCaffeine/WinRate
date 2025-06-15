@@ -64,6 +64,9 @@ class Tuner(tk.Tk):
         self.debug_extra = 450  # Extra width added when debug panel is shown
         self.base_height = 620  # Base height of the GUI window
         self.attributes("-topmost", True)  # Keep GUI window on top of others
+        
+        self.protocol("WM_DELETE_WINDOW", self._quit_tuner_application)  # Handle window close
+        self.resizable(True, True)  # Allow resizing of the window
 
         self.initial_debug_state = (
             initial_debug_state  # Store for setting initial panel visibility
@@ -473,13 +476,15 @@ class Tuner(tk.Tk):
             for st in (("HDR", "SDR") if self.is_HDR_preview_active else ("SDR", "HDR"))
         ]
         preview_suffix_order.append(".png")  # Fallback to plain .png
-        folder = os.path.dirname(
-            __file__
-        )  # Assumes template images are in the same directory
+
+        # Get the directory where the current script is located
+        script_dir = os.path.dirname(__file__)
+
         img_path_to_load = None
         for suffix in preview_suffix_order:
+            # Construct the path to look inside the 'images' subfolder
             candidate_path = os.path.join(
-                folder, base_filename + suffix.strip()
+                script_dir, "images", base_filename + suffix.strip()
             )  # .strip() for plain .png
             if os.path.isfile(candidate_path):
                 img_path_to_load = candidate_path
@@ -584,33 +589,43 @@ class Tuner(tk.Tk):
             f"Reset ROI for {template_name} to {default_roi if default_roi else 'None'}"
         )
 
-    def _save_current_config_to_json(self): 
+
+    def _save_current_config_to_json(self):
         """Saves current configurations (delay, template specs) to saved_user_vars.json."""
         # Prepare the data to be saved
         config_data = {
             "general_settings": {
-                "delay_ms": self.var_delay.get() # Get current delay from the Tkinter variable
+                "delay_ms": self.var_delay.get()  # Get current delay from the Tkinter variable
             },
-            "templates": {} # Placeholder for template-specific settings
+            "templates": {},  # Placeholder for template-specific settings
         }
-        
+
         # Populate template-specific settings (thresholds and ROIs)
         # self.spec refers to the live TEMPLATE_SPEC dictionary shared with winrate.py
-        for name, (base, thresh, roi) in self.spec.items(): 
+        for name, (base, thresh, roi) in self.spec.items():
             config_data["templates"][name] = {
-                "base": base, 
-                "threshold": round(thresh, 4), # Round threshold for cleaner JSON
-                "roi": list(roi) if roi else None # Convert ROI tuple to list for JSON, or None
+                "base": base,
+                "threshold": round(thresh, 4),  # Round threshold for cleaner JSON
+                "roi": (
+                    list(roi) if roi else None
+                ),  # Convert ROI tuple to list for JSON, or None
             }
-        
-        # Determine the path to the configuration file
-        # Assumes saved_user_vars.json is in the same directory as multithreaded_gui_config.py
-        file_path = os.path.join(os.path.dirname(__file__), "saved_user_vars.json")
-        
+
+        # Determine the correct path for the config file. This works whether running
+        # as a .py script or as a compiled .exe from PyInstaller.
         try:
+            if getattr(sys, "frozen", False):
+                # Running in a bundle (the .exe)
+                base_path = os.path.dirname(sys.executable)
+            else:
+                # Running as a normal script (the .py file)
+                base_path = os.path.dirname(__file__)
+
+            file_path = os.path.join(base_path, "saved_user_vars.json")
+
             # Write the configuration data to the JSON file
-            with open(file_path, "w", encoding="utf-8") as fp: # Specify encoding
-                json.dump(config_data, fp, indent=2) # Use indent for readability
+            with open(file_path, "w", encoding="utf-8") as fp:  # Specify encoding
+                json.dump(config_data, fp, indent=2)  # Use indent for readability
             self._log_to_gui_console(f"Config saved to {file_path}")
         except Exception as e:
             self._log_to_gui_console(f"Error saving config: {e}")
