@@ -822,16 +822,13 @@ def limbus_bot():
                     debug_log.append(
                         "[Bot Check [3-A] - EGO Gift Received] Action triggered."
                     )
-                keyboard.press_and_release(
-                    "enter"
-                )  # Press enter to dismiss initial screen
+                # (a) Press enter to dismiss initial screen
+                keyboard.press_and_release("enter")
                 time.sleep(0.5)  # Wait for UI to react
 
-                # Refresh screen and check for a confirm button
+                # (b) After pressing enter, check for confirm buttons and click if found
                 local_screen_gray = refresh_screen()
                 if local_screen_gray is not None:
-                    # **FIX:** Explicitly check each confirm button to ensure its score is logged
-                    # The results are stored before the 'or' check.
                     confirm_pt = best_match(local_screen_gray, TEMPLATES["confirm"])
                     black_confirm_pt = best_match(
                         local_screen_gray, TEMPLATES["black_confirm"]
@@ -840,7 +837,6 @@ def limbus_bot():
                         local_screen_gray, TEMPLATES["black_confirm_v2"]
                     )
 
-                    # Now, check if any of them succeeded and get the point to click
                     confirm_pt_after_ego = (
                         confirm_pt or black_confirm_pt or black_confirm_v2_pt
                     )
@@ -851,6 +847,7 @@ def limbus_bot():
                                 "[Bot Check [3-B] - Confirm (after EGO Get)] Action triggered."
                             )
                         click(confirm_pt_after_ego, hold_ms=10)
+                        time.sleep(0.2)  # Give time for confirm to process
 
                 local_need_refresh = True  # Screen has definitely changed
                 continue  # Restart main loop after this entire sequence
@@ -982,6 +979,7 @@ def limbus_bot():
             if DEBUG_MATCH:
                 debug_log.append("[Bot Check [6] - Enter Encounter] Action triggered.")
             click(match_results["enter"])
+            pyautogui.moveTo(100, 100)  # Move mouse to avoid blocking new screen
             time.sleep(0.5)
             local_need_refresh = True
             continue
