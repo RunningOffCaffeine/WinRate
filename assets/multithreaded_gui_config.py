@@ -31,6 +31,7 @@ import pyautogui  # For ROI picker screen dimensions
 
 # ──────────────────────────────────────────────────────────────────────
 class Tuner(tk.Tk):
+
     def __init__(
         self,
         live_spec,  # The TEMPLATE_SPEC dict from winrate.py (mutable, shared)
@@ -57,6 +58,7 @@ class Tuner(tk.Tk):
         debug_vals_fn,  # Typically lambda: last_vals from winrate.py
         debug_pass_fn,  # Typically lambda: last_pass from winrate.py
         debug_log_fn,  # Typically lambda: debug_log from winrate.py
+        failsafe_timer,  # Failsafe timer value
     ):
         super().__init__(className="Limbus tuner")
         self.title("Limbus tuner")
@@ -64,7 +66,7 @@ class Tuner(tk.Tk):
         self.debug_extra = 450  # Extra width added when debug panel is shown
         self.base_height = 620  # Base height of the GUI window
         self.attributes("-topmost", True)  # Keep GUI window on top of others
-        
+
         self.protocol("WM_DELETE_WINDOW", self._quit_tuner_application)  # Handle window close
         self.resizable(True, True)  # Allow resizing of the window
 
@@ -110,6 +112,7 @@ class Tuner(tk.Tk):
         self.var_lux_thread = tk.BooleanVar(value=initial_lux_thread_state)
         self.var_lux_EXP = tk.BooleanVar(value=initial_lux_EXP_state)
         self.var_mirror_full_auto = tk.BooleanVar(value=initial_mirror_full_auto_state)
+        self.var_failsafe_timer = tk.DoubleVar(value=failsafe_timer)
 
         self.DEBUG_PANEL = None  # Frame for the debug panel, created later
         self._last_log_len = 0  # Tracks displayed log lines for efficient updates
@@ -133,6 +136,17 @@ class Tuner(tk.Tk):
         ttk.Label(df, text="Delay (ms):").pack(side="left")
         ttk.Entry(df, width=5, textvariable=self.var_delay).pack(side="left", padx=4)
         ttk.Button(df, text="Apply", command=self._apply_delay_setting).pack(
+            side="left"
+        )
+
+        # Failsafe timer UI
+        dfs = ttk.Frame(controls)
+        dfs.pack(fill="x", pady=2)
+        ttk.Label(dfs, text="Failsafe Timer (s):").pack(side="left")
+        ttk.Entry(dfs, width=5, textvariable=self.var_failsafe_timer).pack(
+            side="left", padx=4
+        )
+        ttk.Button(dfs, text="Apply", command=self._apply_failsafe_timer_setting).pack(
             side="left"
         )
 
@@ -588,7 +602,6 @@ class Tuner(tk.Tk):
         self._log_to_gui_console(
             f"Reset ROI for {template_name} to {default_roi if default_roi else 'None'}"
         )
-
 
     def _save_current_config_to_json(self):
         """Saves current configurations (delay, template specs) to saved_user_vars.json."""

@@ -154,12 +154,15 @@ DEBUG_MATCH = debug_flag
 last_vals: dict[str, float] = {}
 last_pass: dict[str, float] = {}
 debug_log: list[str] = []
+debug_log_lock = threading.Lock()
 LAST_MOUSE_POS: tuple[int, int] | None = None
 LAST_MOUSE_TIME: float = 0.0
 MOUSE_SHAKE_DISTANCE_THRESHOLD: int = 200
 MOUSE_SHAKE_TIME_WINDOW: float = 0.15
 MOUSE_SHAKES_DETECTED: int = 0
-MOUSE_SHAKES_TO_PAUSE: int = 3
+MOUSE_SHAKES_TO_PAUSE: int = 5
+LAST_SHAKE_TIME: float = 0.0
+failsafe_timer: float = 5.0
 
 Tmpl = namedtuple("Tmpl", "imgs masks thresh roi")
 TEMPLATE_SPEC = {
@@ -284,9 +287,10 @@ def load_templates() -> dict[str, Tmpl]:
                     img_data = cv2.imread(path, cv2.IMREAD_UNCHANGED)
                     if img_data is None:
                         if DEBUG_MATCH:
-                            debug_log.append(
-                                f"Template Load: Failed read {path} for {name}"
-                            )
+                            with debug_log_lock:
+                                debug_log.append(
+                                    f"Template Load: Failed read {path} for {name}"
+                                )
                         continue
                     current_mask: np.ndarray | None = None
                     if img_data.shape[2] == 4:
@@ -298,12 +302,14 @@ def load_templates() -> dict[str, Tmpl]:
                     loaded_template_variants.append(gray_img)
                     corresponding_masks.append(current_mask)
                     if DEBUG_MATCH:
-                        debug_log.append(f"Template Load: Loaded {path} for {name}")
+                        with debug_log_lock:
+                            debug_log.append(f"Template Load: Loaded {path} for {name}")
                 except Exception as e:
                     if DEBUG_MATCH:
-                        debug_log.append(
-                            f"Template Load: Error processing {path} for {name}: {e}"
-                        )
+                        with debug_log_lock:
+                            debug_log.append(
+                                f"Template Load: Error processing {path} for {name}: {e}"
+                            )
         if not loaded_template_variants:
             # Also check the fallback path inside the "images" subfolder
             fallback_path = resource_path(os.path.join("images", base + ".png"))
@@ -321,26 +327,31 @@ def load_templates() -> dict[str, Tmpl]:
                         loaded_template_variants.append(gray_img)
                         corresponding_masks.append(current_mask)
                         if DEBUG_MATCH:
-                            debug_log.append(
-                                f"Template Load: Loaded FALLBACK {fallback_path} for {name}"
-                            )
+                            with debug_log_lock:
+                                debug_log.append(
+                                    f"Template Load: Loaded FALLBACK {fallback_path} for {name}"
+                                )
                     elif DEBUG_MATCH:
-                        debug_log.append(
-                            f"Template Load: Failed read FALLBACK {fallback_path} for {name}"
-                        )
+                        with debug_log_lock:
+                            debug_log.append(
+                                f"Template Load: Failed read FALLBACK {fallback_path} for {name}"
+                            )
                 except Exception as e:
                     if DEBUG_MATCH:
-                        debug_log.append(
-                            f"Template Load: Error processing FALLBACK {fallback_path} for {name}: {e}"
-                        )
+                        with debug_log_lock:
+                            debug_log.append(
+                                f"Template Load: Error processing FALLBACK {fallback_path} for {name}: {e}"
+                            )
         if not loaded_template_variants:
-            debug_log.append(
-                f"Critical: No image files for template '{name}' (base: '{base}'). Skipped."
-            )
+            with debug_log_lock:
+                debug_log.append(
+                    f"Critical: No image files for template '{name}' (base: '{base}'). Skipped."
+                )
             continue
         out[name] = Tmpl(loaded_template_variants, corresponding_masks, thresh, roi)
     if not out and DEBUG_MATCH:
-        debug_log.append("Critical: No templates loaded at all.")
+        with debug_log_lock:
+            debug_log.append("Critical: No templates loaded at all.")
     return out
 
 def active_window_title() -> str:
@@ -373,7 +384,8 @@ def refresh_screen() -> np.ndarray | None:
         return cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2GRAY)
     except Exception as e:
         if DEBUG_MATCH:
-            debug_log.append(f"Screen Grab Error: {e}")
+            with debug_log_lock:
+                debug_log.append(f"Screen Grab Error: {e}")
             print(f"Screen Grab Error: {e}")
         return None
 
@@ -392,10 +404,12 @@ def click(pt: tuple[int, int] | None, hold_ms: int = 0):
             time.sleep(hold_ms / 1000.0)
         pyautogui.mouseUp()
         if DEBUG_MATCH:
-            debug_log.append(f"Clicked at physical:({pt[0]},{pt[1]})")
+            with debug_log_lock:
+                debug_log.append(f"Clicked at physical:({pt[0]},{pt[1]})")
     except Exception as e:
         if DEBUG_MATCH:
-            debug_log.append(f"Click Error: {e} at {pt}")
+            with debug_log_lock:
+                debug_log.append(f"Click Error: {e} at {pt}")
 
 
 def _refresh_templates_from_gui():
@@ -404,7 +418,7 @@ def _refresh_templates_from_gui():
     based on the latest values in TEMPLATE_SPEC, without reloading images from disk.
     """
     global TEMPLATES, TEMPLATE_SPEC, DEBUG_MATCH
-    
+
     updated_count = 0
     for name, tmpl_obj in TEMPLATES.items():
         if name in TEMPLATE_SPEC:
@@ -420,51 +434,61 @@ def _refresh_templates_from_gui():
 
     if updated_count > 0 and DEBUG_MATCH:
         # Log a more accurate and less frequent message
-        debug_log.append(f"Synchronized {updated_count} template setting(s) from GUI.")
+        with debug_log_lock:
+            debug_log.append(
+                f"Synchronized {updated_count} template setting(s) from GUI."
+            )
 
 
 def set_delay_ms_config(ms: int):
     global delay_ms, CHECK_INTERVAL
     delay_ms = max(ms, 10)
     CHECK_INTERVAL = delay_ms / 1000.0
-    debug_log.append(f"Frame-grab interval set to {delay_ms} ms.")
+    with debug_log_lock:
+        debug_log.append(f"Frame-grab interval set to {delay_ms} ms.")
 
 
 def set_hdr_preview_config(is_hdr_active: bool):
     global is_HDR
     is_HDR = is_hdr_active
-    debug_log.append(f"GUI HDR Preview mode set to: {'ON' if is_HDR else 'OFF'}.")
+    with debug_log_lock:
+        debug_log.append(f"GUI HDR Preview mode set to: {'ON' if is_HDR else 'OFF'}.")
 
 
 def set_text_skip_config(skip: bool):
     global text_skip
     text_skip = skip
-    debug_log.append(f"Text skip {'enabled' if skip else 'disabled'}.")
+    with debug_log_lock:
+        debug_log.append(f"Text skip {'enabled' if skip else 'disabled'}.")
 
 
 def set_debug_mode_config(debug_mode: bool):
     global debug_flag, DEBUG_MATCH
     debug_flag = debug_mode
     DEBUG_MATCH = debug_mode
-    debug_log.append(f"Debug mode {'enabled' if debug_mode else 'disabled'}.")
+    with debug_log_lock:
+        debug_log.append(f"Debug mode {'enabled' if debug_mode else 'disabled'}.")
 
 
 def set_lux_thread_config(state: bool):
     global lux_thread
     lux_thread = state
-    debug_log.append(f"Thread Lux set to: {state}")
+    with debug_log_lock:
+        debug_log.append(f"Thread Lux set to: {state}")
 
 
 def set_lux_exp_config(state: bool):
     global lux_EXP
     lux_EXP = state
-    debug_log.append(f"EXP Lux set to: {state}")
+    with debug_log_lock:
+        debug_log.append(f"EXP Lux set to: {state}")
 
 
 def set_full_auto_mirror_config(state: bool):
     global full_auto_mirror
     full_auto_mirror = state
-    debug_log.append(f"Mirror Auto set to: {state}")
+    with debug_log_lock:
+        debug_log.append(f"Mirror Auto set to: {state}")
 
 
 def best_match(screen_gray: np.ndarray, tmpl_obj: Tmpl) -> tuple[int, int] | None:
@@ -476,9 +500,10 @@ def best_match(screen_gray: np.ndarray, tmpl_obj: Tmpl) -> tuple[int, int] | Non
                 template_name = name
                 break
     except NameError:
-        debug_log.append(
-            f"Critical: Global TEMPLATES not found in best_match for {template_name}."
-        )
+        with debug_log_lock:
+            debug_log.append(
+                f"Critical: Global TEMPLATES not found in best_match for {template_name}."
+            )
 
     if tmpl_obj.roi:
         x_r, y_r, w_r, h_r = tmpl_obj.roi
@@ -494,9 +519,10 @@ def best_match(screen_gray: np.ndarray, tmpl_obj: Tmpl) -> tuple[int, int] | Non
         h_r = min(h_r, H_s - y_r)
         if w_r <= 0 or h_r <= 0:
             if DEBUG_MATCH:
-                debug_log.append(
-                    f"Match {template_name}: ROI invalid for screen {screen_gray.shape}"
-                )
+                with debug_log_lock:
+                    debug_log.append(
+                        f"Match {template_name}: ROI invalid for screen {screen_gray.shape}"
+                    )
             last_vals[template_name] = -1.0
             return None
         screen_region_raw = screen_gray[y_r : y_r + h_r, x_r : x_r + w_r]
@@ -505,18 +531,20 @@ def best_match(screen_gray: np.ndarray, tmpl_obj: Tmpl) -> tuple[int, int] | Non
         screen_region_raw = screen_gray
     if screen_region_raw.size == 0:
         if DEBUG_MATCH:
-            debug_log.append(
-                f"Match {template_name}: Screen region empty. ROI: {tmpl_obj.roi}"
-            )
+            with debug_log_lock:
+                debug_log.append(
+                    f"Match {template_name}: Screen region empty. ROI: {tmpl_obj.roi}"
+                )
         last_vals[template_name] = -1.0
         return None
     try:
         screen_region_equalized = cv2.equalizeHist(screen_region_raw)
     except cv2.error as e:
         if DEBUG_MATCH:
-            debug_log.append(
-                f"Match {template_name}: Error equalizing screen region: {e}"
-            )
+            with debug_log_lock:
+                debug_log.append(
+                    f"Match {template_name}: Error equalizing screen region: {e}"
+                )
         last_vals[template_name] = -1.0
         return None
     rh, rw = screen_region_equalized.shape[:2]
@@ -526,20 +554,25 @@ def best_match(screen_gray: np.ndarray, tmpl_obj: Tmpl) -> tuple[int, int] | Non
     overall_best_sz: tuple[int, int] | None = None
     if not tmpl_obj.imgs:
         if DEBUG_MATCH:
-            debug_log.append(f"Match {template_name}: No image variants loaded.")
+            with debug_log_lock:
+                debug_log.append(f"Match {template_name}: No image variants loaded.")
         last_vals[template_name] = -1.0
         return None
     for var_idx, orig_tpl_img in enumerate(tmpl_obj.imgs):
         if orig_tpl_img is None:
             if DEBUG_MATCH:
-                debug_log.append(f"Match {template_name}, Var {var_idx}: Image None.")
+                with debug_log_lock:
+                    debug_log.append(
+                        f"Match {template_name}, Var {var_idx}: Image None."
+                    )
             continue
         for scale in scales_to_try:
             if len(orig_tpl_img.shape) < 2:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        f"Match {template_name}, Var {var_idx}: Invalid shape."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            f"Match {template_name}, Var {var_idx}: Invalid shape."
+                        )
                 continue
             th_o, tw_o = orig_tpl_img.shape[:2]
             tw_s = int(tw_o * scale)
@@ -553,9 +586,10 @@ def best_match(screen_gray: np.ndarray, tmpl_obj: Tmpl) -> tuple[int, int] | Non
                 scl_tpl_eq = cv2.equalizeHist(scl_tpl)
             except cv2.error as e:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        f"Match {template_name}, Var {var_idx}, Scale {scale}: Resize/Eq error: {e}"
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            f"Match {template_name}, Var {var_idx}, Scale {scale}: Resize/Eq error: {e}"
+                        )
                 continue
             if scl_tpl_eq.shape[0] > rh or scl_tpl_eq.shape[1] > rw:
                 continue
@@ -566,9 +600,10 @@ def best_match(screen_gray: np.ndarray, tmpl_obj: Tmpl) -> tuple[int, int] | Non
                 _, max_v_cur, _, max_l_cur = cv2.minMaxLoc(res)
             except cv2.error as e:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        f"Match {template_name}, Var {var_idx}, Scale {scale}: matchTemplate error: {e}"
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            f"Match {template_name}, Var {var_idx}, Scale {scale}: matchTemplate error: {e}"
+                        )
                 continue
             if max_v_cur > overall_best_val:
                 overall_best_val = max_v_cur
@@ -579,10 +614,16 @@ def best_match(screen_gray: np.ndarray, tmpl_obj: Tmpl) -> tuple[int, int] | Non
         return None
     last_pass[template_name] = overall_best_val
     if DEBUG_MATCH:
-        debug_log.append(f"-------------")
-        debug_log.append(f"Match {template_name}: PASSED.")
-        debug_log.append(f"  Score: {overall_best_val:.3f} >= {tmpl_obj.thresh:.3f}")
-        debug_log.append(f"-------------")
+        with debug_log_lock:
+            debug_log.append(f"-------------")
+        with debug_log_lock:
+            debug_log.append(f"Match {template_name}: PASSED.")
+        with debug_log_lock:
+            debug_log.append(
+                f"  Score: {overall_best_val:.3f} >= {tmpl_obj.thresh:.3f}"
+            )
+        with debug_log_lock:
+            debug_log.append(f"-------------")
     if overall_best_loc is None or overall_best_sz is None:
         return None
     cx_reg = overall_best_loc[0] + overall_best_sz[0] // 2
@@ -608,9 +649,10 @@ def run_batch_template_checks(
                 results[template_name_for_future] = future.result()
             except Exception as exc:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        f"[Bot Parallel Check] {template_name_for_future} exc: {exc}"
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            f"[Bot Parallel Check] {template_name_for_future} exc: {exc}"
+                        )
                 results[template_name_for_future] = None
     return results
 
@@ -632,53 +674,97 @@ PRIMARY_CHECK_TEMPLATES = [
 ]
 
 
-def check_mouse_shake_failsafe():
-    global LAST_MOUSE_POS, LAST_MOUSE_TIME, MOUSE_SHAKES_DETECTED, pause_event, DEBUG_MATCH, debug_log
-    try:
-        current_pos = pyautogui.position()
-        current_time = time.perf_counter()
-        if LAST_MOUSE_POS is not None:
-            time_diff = current_time - LAST_MOUSE_TIME
-            if 0.001 < time_diff < MOUSE_SHAKE_TIME_WINDOW:
+def mouse_shake_monitor():
+    """
+    Runs in a separate thread to constantly monitor for mouse shakes.
+    If enough shakes are detected, it triggers the pause event.
+    The shake counter is reset when the bot is resumed or after 5 seconds of no shaking.
+    """
+    global LAST_MOUSE_POS, LAST_MOUSE_TIME, MOUSE_SHAKES_DETECTED, pause_event, DEBUG_MATCH, debug_log, LAST_SHAKE_TIME
+
+    was_paused = pause_event.is_set()
+
+    while True:
+        try:
+            is_currently_paused = pause_event.is_set()
+            current_time = time.perf_counter()
+
+            # Detect when the bot is resumed (i.e., state changes from paused to not-paused)
+            if was_paused and not is_currently_paused:
+                MOUSE_SHAKES_DETECTED = 0
+                LAST_MOUSE_POS = None  # Forget the last position to prevent false detection on resume
+                if DEBUG_MATCH:
+                    with debug_log_lock:
+                        debug_log.append(
+                            "Bot resumed. Mouse shake counter and position reset."
+                        )
+
+            # Update the state for the next iteration
+            was_paused = is_currently_paused
+
+            # Only check for shakes if the bot is not paused
+            if not is_currently_paused:
+                # Reset counter if x seconds have passed since the last shake
+                if MOUSE_SHAKES_DETECTED > 0 and (
+                    current_time - LAST_SHAKE_TIME > failsafe_timer
+                ):
+                    if DEBUG_MATCH:
+                        with debug_log_lock:
+                            debug_log.append(
+                                "Shake Timeout. Mouse shake counter reset."
+                            )
+                    MOUSE_SHAKES_DETECTED = 0
+
+                current_pos = pyautogui.position()
+
+                if LAST_MOUSE_POS is None:
+                    LAST_MOUSE_POS = (current_pos.x, current_pos.y)
+                    LAST_MOUSE_TIME = current_time
+                    time.sleep(0.05)
+                    continue
+
                 dist_moved = math.sqrt(
                     (current_pos.x - LAST_MOUSE_POS[0]) ** 2
                     + (current_pos.y - LAST_MOUSE_POS[1]) ** 2
                 )
+
                 if dist_moved > MOUSE_SHAKE_DISTANCE_THRESHOLD:
                     MOUSE_SHAKES_DETECTED += 1
+                    LAST_SHAKE_TIME = current_time  # Update time of the last shake
                     if DEBUG_MATCH:
-                        debug_log.append(
-                            f"Mouse shake ({MOUSE_SHAKES_DETECTED}/{MOUSE_SHAKES_TO_PAUSE}). Dist:{dist_moved:.0f}px in {time_diff:.3f}s"
-                        )
-                    if MOUSE_SHAKES_DETECTED >= MOUSE_SHAKES_TO_PAUSE:
-                        if not pause_event.is_set():
-                            pause_event.set()
-                            debug_log.append("BOT PAUSED BY MOUSE SHAKE!")
-                            print("BOT PAUSED BY MOUSE SHAKE!")
-                            tuner = get_tuner()
-                            if (
-                                tuner
-                                and hasattr(tuner, "btn_pause")
-                                and hasattr(tuner, "_toggle_bot_pause_state")
-                            ):
-                                tuner.after(
-                                    0,
-                                    lambda: (
-                                        tuner.btn_pause.config(
-                                            text="Resume Bot", bg="red"
-                                        )
-                                    ),
-                                )
-                        MOUSE_SHAKES_DETECTED = 0
-                else:
+                        with debug_log_lock:
+                            debug_log.append(
+                                f"Mouse shake ({MOUSE_SHAKES_DETECTED}/{MOUSE_SHAKES_TO_PAUSE}). Dist:{dist_moved:.0f}px"
+                            )
+
+                if MOUSE_SHAKES_DETECTED >= MOUSE_SHAKES_TO_PAUSE:
+                    if not pause_event.is_set():
+                        pause_event.set()
+                        log_msg = "BOT PAUSED BY MOUSE SHAKE!"
+                        print(log_msg)
+                        with debug_log_lock:
+                            debug_log.append(log_msg)
+
+                        tuner = get_tuner()
+                        if tuner:
+                            tuner.after(
+                                0,
+                                lambda: tuner.btn_pause.config(
+                                    text="Resume Bot", bg="red"
+                                ),
+                            )
+
                     MOUSE_SHAKES_DETECTED = 0
-            else:
-                MOUSE_SHAKES_DETECTED = 0
-        LAST_MOUSE_POS = (current_pos.x, current_pos.y)
-        LAST_MOUSE_TIME = current_time
-    except Exception as e:
-        if DEBUG_MATCH:
-            debug_log.append(f"Error in mouse shake detection: {e}")
+
+                LAST_MOUSE_POS = (current_pos.x, current_pos.y)
+
+            time.sleep(0.05)
+
+        except Exception as e:
+            if DEBUG_MATCH:
+                with debug_log_lock:
+                    debug_log.append(f"Error in mouse shake monitor thread: {e}")
+            time.sleep(1)
 
 
 def limbus_bot():
@@ -687,7 +773,6 @@ def limbus_bot():
     local_screen_gray: np.ndarray | None = None
     game_inactive_logged_once = False
     while True:
-        check_mouse_shake_failsafe()  # Check for mouse shake at the start of each cycle
 
         if pause_event.is_set():
             time.sleep(CHECK_INTERVAL)
@@ -695,14 +780,18 @@ def limbus_bot():
         current_title = active_window_title()
         if "LimbusCompany" not in current_title:
             if not game_inactive_logged_once and DEBUG_MATCH:
-                debug_log.append("LimbusCompany window not active. Bot idling.")
+                with debug_log_lock:
+                    debug_log.append("LimbusCompany window not active. Bot idling.")
             game_inactive_logged_once = True
             time.sleep(1)
             local_need_refresh = True
             continue
         if game_inactive_logged_once:
             if DEBUG_MATCH:
-                debug_log.append("LimbusCompany window now active. Resuming checks.")
+                with debug_log_lock:
+                    debug_log.append(
+                        "LimbusCompany window now active. Resuming checks."
+                    )
             game_inactive_logged_once = False
             local_need_refresh = True
         now = time.perf_counter()
@@ -714,7 +803,10 @@ def limbus_bot():
             screen_gray_new = refresh_screen()
             if screen_gray_new is None:
                 if DEBUG_MATCH:
-                    debug_log.append("Error: Failed to capture screen. Retrying soon.")
+                    with debug_log_lock:
+                        debug_log.append(
+                            "Error: Failed to capture screen. Retrying soon."
+                        )
                 time.sleep(0.5)
                 local_need_refresh = True
                 continue
@@ -723,9 +815,10 @@ def limbus_bot():
             local_need_refresh = False
         if local_screen_gray is None:
             if DEBUG_MATCH:
-                debug_log.append(
-                    "Error: Screen data is None before checks. Forcing refresh."
-                )
+                with debug_log_lock:
+                    debug_log.append(
+                        "Error: Screen data is None before checks. Forcing refresh."
+                    )
             local_need_refresh = True
             time.sleep(0.1)
             continue
@@ -736,22 +829,25 @@ def limbus_bot():
             if name in TEMPLATES
         }
         if DEBUG_MATCH:
-            debug_log.append(
-                f"Starting batch check for {len(templates_for_current_batch)} templates..."
-            )
+            with debug_log_lock:
+                debug_log.append(
+                    f"Starting batch check for {len(templates_for_current_batch)} templates..."
+                )
         batch_start_time = time.perf_counter()
         match_results = run_batch_template_checks(
             local_screen_gray, templates_for_current_batch
         )
         batch_end_time = time.perf_counter()
         if DEBUG_MATCH:
-            debug_log.append(
-                f"Batch check completed in {batch_end_time-batch_start_time:.4f} seconds."
-            )
+            with debug_log_lock:
+                debug_log.append(
+                    f"Batch check completed in {batch_end_time-batch_start_time:.4f} seconds."
+                )
 
         if match_results.get("winrate"):
             if DEBUG_MATCH:
-                debug_log.append("[Bot Check [1] - WinRate] Action triggered.")
+                with debug_log_lock:
+                    debug_log.append("[Bot Check [1] - WinRate] Action triggered.")
             h_s, w_s = local_screen_gray.shape
             pyautogui.moveTo(w_s // 2, int(h_s * 0.10))
             pyautogui.click()
@@ -765,7 +861,8 @@ def limbus_bot():
 
         if text_skip and match_results.get("speech_menu"):
             if DEBUG_MATCH:
-                debug_log.append("[Bot Check [2-A] - SpeechMenu] Action triggered.")
+                with debug_log_lock:
+                    debug_log.append("[Bot Check [2-A] - SpeechMenu] Action triggered.")
             click(match_results["speech_menu"], hold_ms=10)
             time.sleep(0.5)
             local_screen_gray = refresh_screen()
@@ -775,9 +872,10 @@ def limbus_bot():
             fast_forward_pt = best_match(local_screen_gray, TEMPLATES["fast_forward"])
             if fast_forward_pt:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [2-B] - FastForward] Action triggered."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [2-B] - FastForward] Action triggered."
+                        )
                 click(fast_forward_pt, hold_ms=10)
                 time.sleep(0.5)
                 local_screen_gray = refresh_screen()
@@ -785,9 +883,10 @@ def limbus_bot():
                     local_need_refresh = True
                     continue
             elif DEBUG_MATCH:
-                debug_log.append(
-                    "[Bot Check [2-B] FAILED] FastForward (within SpeechMenu) not found."
-                )
+                with debug_log_lock:
+                    debug_log.append(
+                        "[Bot Check [2-B] FAILED] FastForward (within SpeechMenu) not found."
+                    )
             selectable_for_skip_pt = best_match(
                 local_screen_gray, TEMPLATES["selectable"]
             )
@@ -795,14 +894,16 @@ def limbus_bot():
                 confirm_speech_pt = best_match(local_screen_gray, TEMPLATES["confirm"])
                 if confirm_speech_pt:
                     if DEBUG_MATCH:
-                        debug_log.append(
-                            "[Bot Check [2-C] - Confirm (Speech)] Action triggered."
-                        )
+                        with debug_log_lock:
+                            debug_log.append(
+                                "[Bot Check [2-C] - Confirm (Speech)] Action triggered."
+                            )
                     click(confirm_speech_pt, hold_ms=10)
                 elif DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [2-C] FAILED] Confirm (Speech) not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [2-C] FAILED] Confirm (Speech) not found."
+                        )
             local_need_refresh = True
             continue
 
@@ -819,9 +920,10 @@ def limbus_bot():
             # HIGHEST PRIORITY: EGO Get screen sequence
             if ego_get_overlay_pt:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [3-A] - EGO Gift Received] Action triggered."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [3-A] - EGO Gift Received] Action triggered."
+                        )
                 # (a) Press enter to dismiss initial screen
                 keyboard.press_and_release("enter")
                 time.sleep(0.5)  # Wait for UI to react
@@ -843,9 +945,10 @@ def limbus_bot():
 
                     if confirm_pt_after_ego:
                         if DEBUG_MATCH:
-                            debug_log.append(
-                                "[Bot Check [3-B] - Confirm (after EGO Get)] Action triggered."
-                            )
+                            with debug_log_lock:
+                                debug_log.append(
+                                    "[Bot Check [3-B] - Confirm (after EGO Get)] Action triggered."
+                                )
                         click(confirm_pt_after_ego, hold_ms=10)
                         time.sleep(0.2)  # Give time for confirm to process
 
@@ -855,14 +958,18 @@ def limbus_bot():
             # If EGO Get was not found, check for other "waiting" overlays
             elif choice_overlay_pt:
                 if DEBUG_MATCH:
-                    debug_log.append("[Bot Check [3-C] - Choice Needed] Waiting...")
+                    with debug_log_lock:
+                        debug_log.append("[Bot Check [3-C] - Choice Needed] Waiting...")
                 action_taken_in_overlay_block = True
             elif fusion_overlay_pt:
                 if DEBUG_MATCH:
-                    debug_log.append("[Bot Check [3-D] - Fusion Check] Waiting...")
+                    with debug_log_lock:
+                        debug_log.append("[Bot Check [3-D] - Fusion Check] Waiting...")
                 action_taken_in_overlay_block = True
             # elif is_ego_block_active:
-            #     if DEBUG_MATCH: debug_log.append("[Bot Check [3-E] - EGO Select (Pending)] Waiting...")
+            # if DEBUG_MATCH:
+            #     with debug_log_lock:
+            #         debug_log.append("[Bot Check [3-E] - EGO Select (Pending)] Waiting...")
             #     action_taken_in_overlay_block = True
 
             if action_taken_in_overlay_block:
@@ -878,9 +985,10 @@ def limbus_bot():
         )
         if confirm_button_to_click:
             if DEBUG_MATCH:
-                debug_log.append(
-                    "[Bot Check [3-F] - General Confirm Button] Action triggered."
-                )
+                with debug_log_lock:
+                    debug_log.append(
+                        "[Bot Check [3-F] - General Confirm Button] Action triggered."
+                    )
             click(confirm_button_to_click, hold_ms=10)
             time.sleep(CHECK_INTERVAL * 2)
             local_need_refresh = True
@@ -888,9 +996,10 @@ def limbus_bot():
 
         if match_results.get("skip"):
             if DEBUG_MATCH:
-                debug_log.append(
-                    "[Bot Check [4-A] - Skip (Abno Start)] Action triggered."
-                )
+                with debug_log_lock:
+                    debug_log.append(
+                        "[Bot Check [4-A] - Skip (Abno Start)] Action triggered."
+                    )
             click(match_results["skip"], hold_ms=10)
             time.sleep(0.2)
             h_s, w_s = local_screen_gray.shape
@@ -902,9 +1011,10 @@ def limbus_bot():
             continue_abno_pt = best_match(local_screen_gray, TEMPLATES["continue"])
             if continue_abno_pt:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [4-B] - Continue (Abno)] Action triggered."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [4-B] - Continue (Abno)] Action triggered."
+                        )
                 click(continue_abno_pt, hold_ms=10)
                 time.sleep(0.5)
                 local_screen_gray = refresh_screen()
@@ -916,9 +1026,10 @@ def limbus_bot():
                 )
                 if continue_abno_pt_2:
                     if DEBUG_MATCH:
-                        debug_log.append(
-                            "[Bot Check [4-B.2] - Continue x2 (Abno)] Action triggered."
-                        )
+                        with debug_log_lock:
+                            debug_log.append(
+                                "[Bot Check [4-B.2] - Continue x2 (Abno)] Action triggered."
+                            )
                     click(continue_abno_pt_2, hold_ms=10)
                     time.sleep(0.5)
                     local_screen_gray = refresh_screen()
@@ -929,9 +1040,10 @@ def limbus_bot():
                 very_high_pt = best_match(local_screen_gray, TEMPLATES["very_high"])
                 if very_high_pt:
                     if DEBUG_MATCH:
-                        debug_log.append(
-                            "[Bot Check [4-C] - Very High (Abno)] Action triggered."
-                        )
+                        with debug_log_lock:
+                            debug_log.append(
+                                "[Bot Check [4-C] - Very High (Abno)] Action triggered."
+                            )
                     click(very_high_pt, hold_ms=10)
                     time.sleep(0.5)
                     local_screen_gray = refresh_screen()
@@ -951,9 +1063,10 @@ def limbus_bot():
                     else "Commence" if commence_pt else "Commence Battle"
                 )
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        f"[Bot Check [4-D] - {action_name} (Abno)] Action triggered."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            f"[Bot Check [4-D] - {action_name} (Abno)] Action triggered."
+                        )
                 click(final_abno_action_pt, hold_ms=10)
                 time.sleep(0.2)
                 h_s, w_s = local_screen_gray.shape
@@ -969,7 +1082,10 @@ def limbus_bot():
         if battle_action_pt:
             action_name = "To Battle" if match_results.get("battle") else "Chain Battle"
             if DEBUG_MATCH:
-                debug_log.append(f"[Bot Check [5] - {action_name}] Action triggered.")
+                with debug_log_lock:
+                    debug_log.append(
+                        f"[Bot Check [5] - {action_name}] Action triggered."
+                    )
             click(battle_action_pt, hold_ms=10)
             time.sleep(1.0)
             local_need_refresh = True
@@ -977,7 +1093,10 @@ def limbus_bot():
 
         if match_results.get("enter"):
             if DEBUG_MATCH:
-                debug_log.append("[Bot Check [6] - Enter Encounter] Action triggered.")
+                with debug_log_lock:
+                    debug_log.append(
+                        "[Bot Check [6] - Enter Encounter] Action triggered."
+                    )
             click(match_results["enter"])
             pyautogui.moveTo(100, 100)  # Move mouse to avoid blocking new screen
             time.sleep(0.5)
@@ -1003,12 +1122,14 @@ def limbus_bot():
                 or action_taken_in_overlay_block
             )
             if not made_primary_action and not (lux_thread or lux_EXP):
-                debug_log.append(
-                    "[Bot Batch] No high-priority actions from primary checks this cycle."
-                )
+                with debug_log_lock:
+                    debug_log.append(
+                        "[Bot Batch] No high-priority actions from primary checks this cycle."
+                    )
         if lux_thread:
             if DEBUG_MATCH:
-                debug_log.append("[Bot Mode Start - Thread Luxcavation]")
+                with debug_log_lock:
+                    debug_log.append("[Bot Mode Start - Thread Luxcavation]")
             if local_need_refresh:
                 local_screen_gray = refresh_screen()
             if local_screen_gray is None:
@@ -1022,9 +1143,10 @@ def limbus_bot():
                 local_screen_gray = refresh_screen()
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [A-1] FAILED] Drive (Thread Lux) not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [A-1] FAILED] Drive (Thread Lux) not found."
+                        )
                 set_lux_thread_config(False)
                 local_need_refresh = True
                 continue
@@ -1039,9 +1161,10 @@ def limbus_bot():
                 local_screen_gray = refresh_screen()
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [A-2] FAILED] Luxcavations Menu (Thread Lux) not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [A-2] FAILED] Luxcavations Menu (Thread Lux) not found."
+                        )
                 set_lux_thread_config(False)
                 local_need_refresh = True
                 continue
@@ -1058,9 +1181,10 @@ def limbus_bot():
                 local_screen_gray = refresh_screen()
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [A-3] FAILED] Select Thread Lux not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [A-3] FAILED] Select Thread Lux not found."
+                        )
                 set_lux_thread_config(False)
                 local_need_refresh = True
                 continue
@@ -1075,9 +1199,10 @@ def limbus_bot():
                 local_screen_gray = refresh_screen()
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [A-4] FAILED] Lux Enter (Thread Lux) not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [A-4] FAILED] Lux Enter (Thread Lux) not found."
+                        )
                 set_lux_thread_config(False)
                 local_need_refresh = True
                 continue
@@ -1094,9 +1219,10 @@ def limbus_bot():
                 local_screen_gray = refresh_screen()
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [A-5] FAILED] Thread Lux Battle Node not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [A-5] FAILED] Thread Lux Battle Node not found."
+                        )
                 set_lux_thread_config(False)
                 local_need_refresh = True
                 continue
@@ -1110,22 +1236,25 @@ def limbus_bot():
                 time.sleep(2.0)
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [A-6] FAILED] To Battle (Thread Lux) not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [A-6] FAILED] To Battle (Thread Lux) not found."
+                        )
                 set_lux_thread_config(False)
                 local_need_refresh = True
                 continue
             if DEBUG_MATCH:
-                debug_log.append(
-                    "[Bot Mode End - Thread Luxcavation] Sequence complete."
-                )
+                with debug_log_lock:
+                    debug_log.append(
+                        "[Bot Mode End - Thread Luxcavation] Sequence complete."
+                    )
             set_lux_thread_config(False)
             local_need_refresh = True
             continue
         if lux_EXP:
             if DEBUG_MATCH:
-                debug_log.append("[Bot Mode Start - EXP Luxcavation]")
+                with debug_log_lock:
+                    debug_log.append("[Bot Mode Start - EXP Luxcavation]")
             if local_need_refresh:
                 local_screen_gray = refresh_screen()
             if local_screen_gray is None:
@@ -1139,9 +1268,10 @@ def limbus_bot():
                 local_screen_gray = refresh_screen()
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [B-1] FAILED] Drive (EXP Lux) not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [B-1] FAILED] Drive (EXP Lux) not found."
+                        )
                 set_lux_exp_config(False)
                 local_need_refresh = True
                 continue
@@ -1156,9 +1286,10 @@ def limbus_bot():
                 local_screen_gray = refresh_screen()
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [B-2] FAILED] Luxcavations Menu (EXP Lux) not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [B-2] FAILED] Luxcavations Menu (EXP Lux) not found."
+                        )
                 set_lux_exp_config(False)
                 local_need_refresh = True
                 continue
@@ -1173,9 +1304,10 @@ def limbus_bot():
                 local_screen_gray = refresh_screen()
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [B-3] FAILED] Select EXP Lux not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [B-3] FAILED] Select EXP Lux not found."
+                        )
                 set_lux_exp_config(False)
                 local_need_refresh = True
                 continue
@@ -1190,9 +1322,10 @@ def limbus_bot():
                 local_screen_gray = refresh_screen()
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [B-4] FAILED] EXP Lux Enter not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [B-4] FAILED] EXP Lux Enter not found."
+                        )
                 set_lux_exp_config(False)
                 local_need_refresh = True
                 continue
@@ -1206,14 +1339,18 @@ def limbus_bot():
                 time.sleep(2.0)
             else:
                 if DEBUG_MATCH:
-                    debug_log.append(
-                        "[Bot Check [B-5] FAILED] To Battle (EXP Lux) not found."
-                    )
+                    with debug_log_lock:
+                        debug_log.append(
+                            "[Bot Check [B-5] FAILED] To Battle (EXP Lux) not found."
+                        )
                 set_lux_exp_config(False)
                 local_need_refresh = True
                 continue
             if DEBUG_MATCH:
-                debug_log.append("[Bot Mode End - EXP Luxcavation] Sequence complete.")
+                with debug_log_lock:
+                    debug_log.append(
+                        "[Bot Mode End - EXP Luxcavation] Sequence complete."
+                    )
             set_lux_exp_config(False)
             local_need_refresh = True
             continue
@@ -1249,7 +1386,8 @@ def main():
             "CRITICAL: No templates loaded. Bot cannot function. Exiting."
         )
         print(critical_error_msg, file=sys.stderr)
-        debug_log.append(critical_error_msg)
+        with debug_log_lock:
+            debug_log.append(critical_error_msg)
         try:
             handle_exception(RuntimeError, RuntimeError(critical_error_msg), None)
         except:
@@ -1272,7 +1410,10 @@ def main():
     else:
         config_path = os.path.join(APPLICATION_BASE_PATH, config_file_name)
 
-    debug_log.append(f"Attempting to load config from: {config_path}") # Log attempt path
+    with debug_log_lock:
+        debug_log.append(
+            f"Attempting to load config from: {config_path}"
+        )  # Log attempt path
 
     if os.path.isfile(config_path):
         try:
@@ -1283,7 +1424,8 @@ def main():
             if isinstance(loaded_delay_ms, int):
                 delay_ms = max(10, loaded_delay_ms) 
                 CHECK_INTERVAL = delay_ms / 1000.0
-                debug_log.append(f"Loaded delay_ms: {delay_ms} from config.")
+                with debug_log_lock:
+                    debug_log.append(f"Loaded delay_ms: {delay_ms} from config.")
             template_settings = saved_config.get("templates", {}) 
             if not template_settings and "winrate" in saved_config: 
                 template_settings = saved_config 
@@ -1295,12 +1437,17 @@ def main():
                     new_roi = tuple(new_roi_list) if isinstance(new_roi_list, list) else TEMPLATE_SPEC[name][2]
                     TEMPLATE_SPEC[name] = (base_cfg, new_thresh, new_roi)
             _refresh_templates_from_gui() 
-            debug_log.append(f"Loaded template settings from {config_path}")
+            with debug_log_lock:
+                debug_log.append(f"Loaded template settings from {config_path}")
         except Exception as e: 
-            debug_log.append(f"Error loading {config_path}: {e}. Using default specs.")
+            with debug_log_lock:
+                debug_log.append(
+                    f"Error loading {config_path}: {e}. Using default specs."
+                )
             print(f"Error loading config: {e}", file=sys.stderr) 
     else: 
-        debug_log.append(f"{config_path} not found. Using default template specs.")
+        with debug_log_lock:
+            debug_log.append(f"{config_path} not found. Using default template specs.")
 
     # --- ADD A LINE HERE TO TEST CRASH LOGGING ---
     # To test, uncomment the line below, run the script (or compiled .exe).
@@ -1332,6 +1479,7 @@ def main():
             get_last_vals_fn=lambda: last_vals,
             get_last_pass_fn=lambda: last_pass,
             get_debug_log_fn=lambda: debug_log,
+            failsafe_timer=failsafe_timer,
         )
     else:
         # If GUI cannot be launched (because launch_gui or get_tuner is None due to import failure),
@@ -1340,7 +1488,8 @@ def main():
             "CRITICAL ERROR: GUI could not be launched. Bot requires GUI to run."
         )
         print(error_message, file=sys.stderr)
-        debug_log.append(error_message)
+        with debug_log_lock:
+            debug_log.append(error_message)
         if "handle_exception" in globals() and callable(handle_exception):
             try:
                 handle_exception(RuntimeError, RuntimeError("GUI launch failed."), None)
@@ -1351,6 +1500,10 @@ def main():
                 )
         sys.exit(1)  # Exit with a non-zero status code
 
+    # --- Start the mouse shake monitor in a separate daemon thread ---
+    shake_monitor_thread = threading.Thread(target=mouse_shake_monitor, daemon=True)
+    shake_monitor_thread.start()
+
     # --- Hotkey Definitions (ensure correct method names from GUI if interacting) ---
     def _on_pause_hotkey():
         tuner = get_tuner()
@@ -1359,10 +1512,12 @@ def main():
         else:  # This fallback might not be hit if GUI is mandatory
             if pause_event.is_set():
                 pause_event.clear()
-                debug_log.append("Bot resumed via hotkey.")
+                with debug_log_lock:
+                    debug_log.append("Bot resumed via hotkey.")
             else:
                 pause_event.set()
-                debug_log.append("Bot paused via hotkey.")
+                with debug_log_lock:
+                    debug_log.append("Bot paused via hotkey.")
 
     try:
         keyboard.add_hotkey(
@@ -1426,19 +1581,27 @@ def main():
     except Exception as e:
         print(f"Warning: Could not register quit hotkey (ctrl+alt+d): {e}")
 
-    debug_log.append(
-        "Limbus bot initialized (Multithreaded Core). Press Ctrl+Shift+D to pause/resume."
-    )
+    # Move the one-time messages here
     print(
         "Limbus bot initialized (Multithreaded Core). Press Ctrl+Alt+D to force quit."
     )
+    print("Mouse shake detection is active. Shake mouse rapidly to pause.")
+    with debug_log_lock:
+        debug_log.append(
+            "Limbus bot initialized (Multithreaded Core). Press Ctrl+Shift+D to pause/resume."
+        )
+        debug_log.append(
+            "Mouse shake detection is active. Shake mouse rapidly to pause."
+        )
+
     if DEBUG_MATCH:
         print("Debug logs will print to console if no GUI, or in GUI log panel.")
 
     try:
         limbus_bot()
     except KeyboardInterrupt:
-        debug_log.append("Bot terminated by user (KeyboardInterrupt).")
+        with debug_log_lock:
+            ("Bot terminated by user (KeyboardInterrupt).")
         print("\nBot terminated by user.")
     finally:
         debug_log.append("Bot shutting down.")
