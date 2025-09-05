@@ -930,6 +930,7 @@ def limbus_bot():
 
                 # (b) After pressing enter, check for confirm buttons and click if found
                 local_screen_gray = refresh_screen()
+                time.sleep(0.3)  # Wait a bit more to ensure UI has updated
                 if local_screen_gray is not None:
                     confirm_pt = best_match(local_screen_gray, TEMPLATES["confirm"])
                     black_confirm_pt = best_match(
@@ -938,6 +939,7 @@ def limbus_bot():
                     black_confirm_v2_pt = best_match(
                         local_screen_gray, TEMPLATES["black_confirm_v2"]
                     )
+                    time.sleep(0.2)  # Short pause before clicking
 
                     confirm_pt_after_ego = (
                         confirm_pt or black_confirm_pt or black_confirm_v2_pt
