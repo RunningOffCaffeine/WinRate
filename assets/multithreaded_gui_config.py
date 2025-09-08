@@ -59,6 +59,7 @@ class Tuner(tk.Tk):
         debug_pass_fn,  # Typically lambda: last_pass from winrate.py
         debug_log_fn,  # Typically lambda: debug_log from winrate.py
         failsafe_timer,  # Failsafe timer value
+        failsafe_timer_cb,  # Callback for setting failsafe timer in winrate.py
     ):
         super().__init__(className="Limbus tuner")
         self.title("Limbus tuner")
@@ -93,6 +94,7 @@ class Tuner(tk.Tk):
             initial_is_HDR_for_preview  # Internal state for GUI's preview choice
         )
         self.debug_cb = debug_cb
+        self.failsafe_timer_cb = failsafe_timer_cb
 
         self.debug_vals_fn = debug_vals_fn
         self.debug_pass_fn = debug_pass_fn
@@ -112,7 +114,7 @@ class Tuner(tk.Tk):
         self.var_lux_thread = tk.BooleanVar(value=initial_lux_thread_state)
         self.var_lux_EXP = tk.BooleanVar(value=initial_lux_EXP_state)
         self.var_mirror_full_auto = tk.BooleanVar(value=initial_mirror_full_auto_state)
-        self.var_failsafe_timer = tk.DoubleVar(value=failsafe_timer)
+        self.var_failsafe_timer = tk.DoubleVar(value=int(failsafe_timer))
 
         self.DEBUG_PANEL = None  # Frame for the debug panel, created later
         self._last_log_len = 0  # Tracks displayed log lines for efficient updates
@@ -395,6 +397,11 @@ class Tuner(tk.Tk):
         """Applies the delay value from the entry box to the bot."""
         ms = self.var_delay.get()
         self.delay_cb(max(10, ms))  # Call bot's setter, ensuring min 10ms
+        
+    def _apply_failsafe_timer_setting(self):
+        """Applies the failsafe timer value from the entry box to the bot."""
+        seconds = self.var_failsafe_timer.get()
+        self.failsafe_timer_cb(max(0.5, seconds))  # Call bot's setter, ensuring min 0.5s
 
     def _toggle_hdr_preview_mode(self):
         """Toggles the HDR preview mode for template images in the GUI and informs the bot."""
@@ -608,7 +615,8 @@ class Tuner(tk.Tk):
         # Prepare the data to be saved
         config_data = {
             "general_settings": {
-                "delay_ms": self.var_delay.get()  # Get current delay from the Tkinter variable
+                "delay_ms": self.var_delay.get(),  # Get current delay from the Tkinter variable
+                "failsafe_timer_s": round(self.var_failsafe_timer.get(), 2),  # Current failsafe timer
             },
             "templates": {},  # Placeholder for template-specific settings
         }
@@ -793,6 +801,8 @@ def launch_gui(
     get_last_vals_fn,
     get_last_pass_fn,
     get_debug_log_fn,
+    failsafe_timer,
+    set_failsafe_timer_cb,
 ):
     """
     Launches the Tuner GUI in a separate thread.
@@ -828,6 +838,8 @@ def launch_gui(
             debug_vals_fn=get_last_vals_fn,
             debug_pass_fn=get_last_pass_fn,
             debug_log_fn=get_debug_log_fn,
+            failsafe_timer=failsafe_timer,
+            failsafe_timer_cb=set_failsafe_timer_cb,
         )
         # After Tuner is initialized, show/hide debug panel based on its initial state.
         # This ensures _refresh_debug_panel_data starts if initial_debug was true.

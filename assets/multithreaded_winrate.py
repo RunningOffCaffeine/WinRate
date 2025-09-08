@@ -157,7 +157,7 @@ debug_log: list[str] = []
 debug_log_lock = threading.Lock()
 LAST_MOUSE_POS: tuple[int, int] | None = None
 LAST_MOUSE_TIME: float = 0.0
-MOUSE_SHAKE_DISTANCE_THRESHOLD: int = 200
+MOUSE_SHAKE_DISTANCE_THRESHOLD: int = 1000  # Squared distance
 MOUSE_SHAKE_TIME_WINDOW: float = 0.15
 MOUSE_SHAKES_DETECTED: int = 0
 MOUSE_SHAKES_TO_PAUSE: int = 5
@@ -442,10 +442,18 @@ def _refresh_templates_from_gui():
 
 def set_delay_ms_config(ms: int):
     global delay_ms, CHECK_INTERVAL
-    delay_ms = max(ms, 10)
+    delay_ms = max(10, ms)  # Enforce a minimum of 10ms
     CHECK_INTERVAL = delay_ms / 1000.0
     with debug_log_lock:
         debug_log.append(f"Frame-grab interval set to {delay_ms} ms.")
+
+
+def set_failsafe_timer_config(seconds: float):
+    """Callback function for the GUI to set the failsafe timer."""
+    global failsafe_timer
+    failsafe_timer = max(0.5, seconds)  # Ensure a minimum reasonable value
+    with debug_log_lock:
+        debug_log.append(f"Failsafe timer updated to {failsafe_timer:.1f} seconds.")
 
 
 def set_hdr_preview_config(is_hdr_active: bool):
@@ -1363,6 +1371,9 @@ def limbus_bot():
 def main():
     # --- SET CUSTOM EXCEPTION HOOK AT THE VERY BEGINNING OF MAIN ---
     sys.excepthook = handle_exception
+    
+    global failsafe_timer, DEBUG_MATCH, debug_log, debug_flag, text_skip, lux_thread, lux_EXP, full_auto_mirror, is_HDR, pause_event
+    pause_event.clear()  # Ensure bot starts unpaused
 
     # --- Initialize PyAutoGUI Settings AFTER checking it's not None ---
     if pyautogui is None:
@@ -1422,12 +1433,20 @@ def main():
             with open(config_path, encoding="utf-8") as fp: 
                 saved_config = json.load(fp)
             general_settings = saved_config.get("general_settings", {})
+            
             loaded_delay_ms = general_settings.get("delay_ms")
             if isinstance(loaded_delay_ms, int):
                 delay_ms = max(10, loaded_delay_ms) 
                 CHECK_INTERVAL = delay_ms / 1000.0
                 with debug_log_lock:
-                    debug_log.append(f"Loaded delay_ms: {delay_ms} from config.")
+                    debug_log.append(f"Delay timer set to: {delay_ms} ms.")
+                    
+            loaded_failsafe_timer = general_settings.get("failsafe_timer_s")
+            if isinstance(loaded_failsafe_timer, (int, float)):
+                failsafe_timer = max(0.5, loaded_failsafe_timer) 
+                with debug_log_lock:
+                    debug_log.append(f"Loaded failsafe_timer: {failsafe_timer} from config.")
+                    debug_log.append(f"Failsafe timer set to: {failsafe_timer} seconds")
             template_settings = saved_config.get("templates", {}) 
             if not template_settings and "winrate" in saved_config: 
                 template_settings = saved_config 
@@ -1482,6 +1501,7 @@ def main():
             get_last_pass_fn=lambda: last_pass,
             get_debug_log_fn=lambda: debug_log,
             failsafe_timer=failsafe_timer,
+            set_failsafe_timer_cb=set_failsafe_timer_config,
         )
     else:
         # If GUI cannot be launched (because launch_gui or get_tuner is None due to import failure),
