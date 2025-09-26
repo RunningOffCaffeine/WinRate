@@ -157,7 +157,7 @@ debug_log: list[str] = []
 debug_log_lock = threading.Lock()
 LAST_MOUSE_POS: tuple[int, int] | None = None
 LAST_MOUSE_TIME: float = 0.0
-MOUSE_SHAKE_DISTANCE_THRESHOLD: int = 1000  # Squared distance
+MOUSE_SHAKE_DISTANCE_THRESHOLD: float = 400.0  # pixels (scaled by resolution)
 MOUSE_SHAKE_TIME_WINDOW: float = 0.15
 MOUSE_SHAKES_DETECTED: int = 0
 MOUSE_SHAKES_TO_PAUSE: int = 5
@@ -689,7 +689,7 @@ def mouse_shake_monitor():
     The shake counter is reset when the bot is resumed or after 5 seconds of no shaking.
     """
     global LAST_MOUSE_POS, LAST_MOUSE_TIME, MOUSE_SHAKES_DETECTED, pause_event, DEBUG_MATCH, debug_log, LAST_SHAKE_TIME
-
+    
     was_paused = pause_event.is_set()
 
     while True:
@@ -703,28 +703,22 @@ def mouse_shake_monitor():
                 LAST_MOUSE_POS = None  # Forget the last position to prevent false detection on resume
                 if DEBUG_MATCH:
                     with debug_log_lock:
-                        debug_log.append(
-                            "Bot resumed. Mouse shake counter and position reset."
-                        )
-
+                        debug_log.append("Bot resumed. Mouse shake counter and position reset.")
+            
             # Update the state for the next iteration
             was_paused = is_currently_paused
 
             # Only check for shakes if the bot is not paused
             if not is_currently_paused:
-                # Reset counter if x seconds have passed since the last shake
-                if MOUSE_SHAKES_DETECTED > 0 and (
-                    current_time - LAST_SHAKE_TIME > failsafe_timer
-                ):
+                # Reset counter if 5 seconds have passed since the last shake
+                if MOUSE_SHAKES_DETECTED > 0 and (current_time - LAST_SHAKE_TIME > 5):
                     if DEBUG_MATCH:
                         with debug_log_lock:
-                            debug_log.append(
-                                "Shake Timeout. Mouse shake counter reset."
-                            )
+                            debug_log.append("5-second timeout. Mouse shake counter reset.")
                     MOUSE_SHAKES_DETECTED = 0
 
                 current_pos = pyautogui.position()
-
+                
                 if LAST_MOUSE_POS is None:
                     LAST_MOUSE_POS = (current_pos.x, current_pos.y)
                     LAST_MOUSE_TIME = current_time
@@ -735,16 +729,16 @@ def mouse_shake_monitor():
                     (current_pos.x - LAST_MOUSE_POS[0]) ** 2
                     + (current_pos.y - LAST_MOUSE_POS[1]) ** 2
                 )
-
+                
                 if dist_moved > MOUSE_SHAKE_DISTANCE_THRESHOLD:
                     MOUSE_SHAKES_DETECTED += 1
-                    LAST_SHAKE_TIME = current_time  # Update time of the last shake
+                    LAST_SHAKE_TIME = current_time # Update time of the last shake
                     if DEBUG_MATCH:
                         with debug_log_lock:
                             debug_log.append(
                                 f"Mouse shake ({MOUSE_SHAKES_DETECTED}/{MOUSE_SHAKES_TO_PAUSE}). Dist:{dist_moved:.0f}px"
                             )
-
+                
                 if MOUSE_SHAKES_DETECTED >= MOUSE_SHAKES_TO_PAUSE:
                     if not pause_event.is_set():
                         pause_event.set()
@@ -752,16 +746,11 @@ def mouse_shake_monitor():
                         print(log_msg)
                         with debug_log_lock:
                             debug_log.append(log_msg)
-
+                        
                         tuner = get_tuner()
                         if tuner:
-                            tuner.after(
-                                0,
-                                lambda: tuner.btn_pause.config(
-                                    text="Resume Bot", bg="red"
-                                ),
-                            )
-
+                            tuner.after(0, lambda: tuner.btn_pause.config(text="Resume Bot", bg="red"))
+                    
                     MOUSE_SHAKES_DETECTED = 0
 
                 LAST_MOUSE_POS = (current_pos.x, current_pos.y)
@@ -773,6 +762,7 @@ def mouse_shake_monitor():
                 with debug_log_lock:
                     debug_log.append(f"Error in mouse shake monitor thread: {e}")
             time.sleep(1)
+            continue
 
 
 def limbus_bot():
@@ -1390,7 +1380,14 @@ def main():
 
     pyautogui.FAILSAFE = True
     pyautogui.PAUSE = 0.05
-
+    
+    global MOUSE_SHAKE_DISTANCE_THRESHOLD
+    BASE_RESOLUTION_DIAG = math.sqrt(1920**2 + 1080**2) # Base 1080p diagonal
+    current_resolution_diag = math.sqrt(MON_W**2 + MON_H**2) # Current resolution diagonal
+    scale_factor = current_resolution_diag / BASE_RESOLUTION_DIAG
+    MOUSE_SHAKE_DISTANCE_THRESHOLD = 200.0 * scale_factor
+    debug_log.append(f"Mouse shake threshold set to {MOUSE_SHAKE_DISTANCE_THRESHOLD:.1f} pixels based on resolution scaling.")
+    
     global TEMPLATES, delay_ms, CHECK_INTERVAL, APPLICATION_BASE_PATH
     # APPLICATION_BASE_PATH is already defined at module level after get_application_path
     TEMPLATES = load_templates()
