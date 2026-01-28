@@ -28,4 +28,7 @@ dist/
 Thumbs.db
 
 # ML Images
-# ml_tools/dataset/
+/ml_tools
+/dataset
+/ml_tools/dataset
+/ml_tools/models
