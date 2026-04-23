@@ -13,20 +13,16 @@ Live-tuning GUI for Limbus bot (compatible with multithreaded winrate.py)
 
 # ── std-lib imports ───────────────────────────────────────────────────
 import os
-import threading  # Not strictly used in this file but often associated with GUI apps
-import time  # For _pick_roi_on_screen delay
-import sys  # Not strictly used but good practice for GUI apps
+import threading
+import time
+import sys
 import json
 
-# from collections import namedtuple # Not needed here as Tmpl is defined in winrate.py
-
 # ── GUI library imports ───────────────────────────────────────────────
-# Assuming these are installed in the environment.
-# If using _require, it would be in the main winrate.py script.
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk
-import pyautogui  # For ROI picker screen dimensions
+import pyautogui
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -34,55 +30,46 @@ class Tuner(tk.Tk):
 
     def __init__(
         self,
-        live_spec,  # The TEMPLATE_SPEC dict from winrate.py (mutable, shared)
-        orig_spec_for_reset,  # A deepcopy of the original TEMPLATE_SPEC for reset functionality
-        update_cb_to_bot,  # Callback to winrate.py to _refresh_templates_from_gui
-        pause_event_shared,  # Shared threading.Event for pausing the bot
-        # Initial values for GUI controls, sourced from winrate.py's global state
+        live_spec,
+        orig_spec_for_reset,
+        update_cb_to_bot,
+        pause_event_shared,
         initial_delay_ms,
-        initial_is_HDR_for_preview,  # For GUI template preview image selection
+        initial_is_HDR_for_preview,
         initial_debug_state,
         initial_text_skip_state,
         initial_lux_thread_state,
         initial_lux_EXP_state,
         initial_mirror_full_auto_state,
-        # Callbacks from GUI to winrate.py's setter functions (e.g., set_delay_ms_config)
         delay_cb,
-        hdr_preview_cb,  # Callback for when GUI's HDR preview toggle changes
+        hdr_preview_cb,
         debug_cb,
         text_skip_cb,
         lux_thread_cb,
         lux_EXP_cb,
         mirror_full_auto_cb,
-        # Functions for GUI to get data from winrate.py for display in debug panel
-        debug_vals_fn,  # Typically lambda: last_vals from winrate.py
-        debug_pass_fn,  # Typically lambda: last_pass from winrate.py
-        debug_log_fn,  # Typically lambda: debug_log from winrate.py
-        failsafe_timer,  # Failsafe timer value
-        failsafe_timer_cb,  # Callback for setting failsafe timer in winrate.py
+        debug_vals_fn,
+        debug_pass_fn,
+        debug_log_fn,
     ):
         super().__init__(className="Limbus tuner")
         self.title("Limbus tuner")
-        self.base_width = 500  # Base width of the GUI window
-        self.debug_extra = 450  # Extra width added when debug panel is shown
-        self.base_height = 620  # Base height of the GUI window
-        self.attributes("-topmost", True)  # Keep GUI window on top of others
+        self.base_width = 500
+        self.debug_extra = 450
+        self.base_height = 620
+        self.attributes("-topmost", True)
 
-        self.protocol("WM_DELETE_WINDOW", self._quit_tuner_application)  # Handle window close
-        self.resizable(True, True)  # Allow resizing of the window
+        self.protocol("WM_DELETE_WINDOW", self._quit_tuner_application)
+        self.resizable(True, True)
 
-        self.initial_debug_state = (
-            initial_debug_state  # Store for setting initial panel visibility
-        )
+        self.initial_debug_state = initial_debug_state
 
-        # Calculate initial window width based on debug state
         current_width = self.base_width + (
             self.debug_extra if self.initial_debug_state else 0
         )
-        self.geometry(f"{current_width}x{self.base_height}")  # Set initial size
-        self.minsize(self.base_width, self.base_height)  # Set minimum resizable size
+        self.geometry(f"{current_width}x{self.base_height}")
+        self.minsize(self.base_width, self.base_height)
 
-        # Store references to shared objects and callbacks from the main bot script
         self.spec = live_spec
         self.orig_spec = orig_spec_for_reset
         self.update_cb = update_cb_to_bot
@@ -90,23 +77,18 @@ class Tuner(tk.Tk):
 
         self.delay_cb = delay_cb
         self.hdr_preview_cb = hdr_preview_cb
-        self.is_HDR_preview_active = (
-            initial_is_HDR_for_preview  # Internal state for GUI's preview choice
-        )
+        self.is_HDR_preview_active = initial_is_HDR_for_preview
         self.debug_cb = debug_cb
-        self.failsafe_timer_cb = failsafe_timer_cb
 
         self.debug_vals_fn = debug_vals_fn
         self.debug_pass_fn = debug_pass_fn
         self.debug_log_fn = debug_log_fn
 
         self.text_skip_cb = text_skip_cb
-
         self.lux_thread_cb = lux_thread_cb
         self.lux_EXP_cb = lux_EXP_cb
         self.mirror_full_auto_cb = mirror_full_auto_cb
 
-        # Tkinter variables bound to GUI controls, initialized with states from winrate.py
         self.var_delay = tk.IntVar(value=initial_delay_ms)
         self.var_hdr_preview = tk.BooleanVar(value=initial_is_HDR_for_preview)
         self.var_debug = tk.BooleanVar(value=initial_debug_state)
@@ -114,25 +96,19 @@ class Tuner(tk.Tk):
         self.var_lux_thread = tk.BooleanVar(value=initial_lux_thread_state)
         self.var_lux_EXP = tk.BooleanVar(value=initial_lux_EXP_state)
         self.var_mirror_full_auto = tk.BooleanVar(value=initial_mirror_full_auto_state)
-        self.var_failsafe_timer = tk.DoubleVar(value=int(failsafe_timer))
 
-        self.DEBUG_PANEL = None  # Frame for the debug panel, created later
-        self._last_log_len = 0  # Tracks displayed log lines for efficient updates
+        self.DEBUG_PANEL = None
+        self._last_log_len = 0
 
-        # Apply custom styling to the Treeview widget used for scores
         style = ttk.Style(self)
         style.configure("Debug.Treeview", rowheight=24)
 
-        # --- Build GUI Layout ---
-        # Main container frame
         container = ttk.Frame(self)
         container.pack(fill="both", expand=True, padx=8, pady=8)
 
-        # Left panel for main controls
         controls = ttk.Frame(container)
         controls.pack(side="left", fill="both", expand=True)
 
-        # Delay setting UI
         df = ttk.Frame(controls)
         df.pack(fill="x", pady=2)
         ttk.Label(df, text="Delay (ms):").pack(side="left")
@@ -141,18 +117,6 @@ class Tuner(tk.Tk):
             side="left"
         )
 
-        # Failsafe timer UI
-        dfs = ttk.Frame(controls)
-        dfs.pack(fill="x", pady=2)
-        ttk.Label(dfs, text="Failsafe Timer (s):").pack(side="left")
-        ttk.Entry(dfs, width=5, textvariable=self.var_failsafe_timer).pack(
-            side="left", padx=4
-        )
-        ttk.Button(dfs, text="Apply", command=self._apply_failsafe_timer_setting).pack(
-            side="left"
-        )
-
-        # Checkboxes for various modes and settings
         chk_frame = ttk.Frame(controls)
         chk_frame.pack(fill="x", pady=4)
         ttk.Checkbutton(
@@ -192,10 +156,7 @@ class Tuner(tk.Tk):
             command=self._toggle_exp_lux_mode,
         ).grid(row=2, column=1, sticky="w", padx=20, pady=2)
 
-        # Dropdown menu to select a template for editing
-        first_template_name = (
-            next(iter(self.spec)) if self.spec else ""
-        )  # Get first key if spec is not empty
+        first_template_name = next(iter(self.spec)) if self.spec else ""
         self.var_name = tk.StringVar(value=first_template_name)
         ttk.OptionMenu(
             controls,
@@ -205,10 +166,9 @@ class Tuner(tk.Tk):
             command=self._load_data_for_selected_template,
         ).pack(fill="x")
 
-        # UI for threshold adjustment (slider and entry box)
         sf = ttk.Frame(controls)
         sf.pack(fill="x", pady=4)
-        initial_thr_val = 0.75  # Default threshold if template not found initially
+        initial_thr_val = 0.75
         if first_template_name and first_template_name in self.spec:
             _, initial_thr_val, _ = self.spec[first_template_name]
         self.var_thr = tk.DoubleVar(value=initial_thr_val)
@@ -225,15 +185,13 @@ class Tuner(tk.Tk):
         entry.pack(side="left", padx=4)
         entry.bind("<Return>", self._set_threshold_from_entry)
 
-        self.img_label = tk.Label(sf)  # Displays template preview image
+        self.img_label = tk.Label(sf)
         self.img_label.pack(side="right", padx=4)
 
-        # UI for ROI display and picking
         self.lab_roi = ttk.Label(controls, text="ROI : None")
         self.lab_roi.pack(pady=4)
         ttk.Button(controls, text="Pick ROI", command=self._pick_roi_on_screen).pack()
 
-        # Bottom buttons section (Reset, Pause/Resume, Quit, Save)
         bottom_buttons_frame = ttk.Frame(controls)
         bottom_buttons_frame.pack(side="bottom", fill="x", pady=(8, 4))
         reset_buttons_bar = ttk.Frame(bottom_buttons_frame)
@@ -266,22 +224,17 @@ class Tuner(tk.Tk):
             command=self._save_current_config_to_json,
         ).pack(fill="x", pady=(4, 0))
 
-        # Create the debug panel (widgets are built here)
         self._build_debug_panel_widgets(container)
 
-        # Load initial data for the first selected template (if any)
         if first_template_name:
             self._load_data_for_selected_template()
 
     def _build_debug_panel_widgets(self, parent_container):
-        """Creates the widgets for the debug panel (scores table and log console)."""
         self.DEBUG_PANEL = ttk.Frame(parent_container, relief="sunken", borderwidth=0.5)
-        # Grid layout for the debug panel itself
         self.DEBUG_PANEL.columnconfigure(0, weight=1)
         self.DEBUG_PANEL.rowconfigure(1, weight=6)
         self.DEBUG_PANEL.rowconfigure(3, weight=4)
 
-        # Scores Table
         lbl_scores = ttk.Label(
             self.DEBUG_PANEL, text="Debug Scores", font=("TkDefaultFont", 10, "bold")
         )
@@ -312,7 +265,6 @@ class Tuner(tk.Tk):
         self.score_vsb.grid(row=1, column=1, sticky="ns", pady=(0, 4))
         self.score_vsb.grid_remove()
 
-        # Log Console
         lbl_log = ttk.Label(
             self.DEBUG_PANEL, text="Log", font=("TkDefaultFont", 10, "bold")
         )
@@ -334,23 +286,21 @@ class Tuner(tk.Tk):
         self.log_vsb_console.grid_remove()
 
     def _refresh_debug_panel_data(self):
-        """Periodically updates the scores table and log console in the debug panel."""
         if not self.var_debug.get():
-            return  # Stop refreshing if debug mode is off
+            return
 
-        # Update Scores Table
         for iid in self.tree.get_children():
-            self.tree.delete(iid)  # Clear previous entries
+            self.tree.delete(iid)
         scores_data = self.debug_vals_fn()
-        passes_data = self.debug_pass_fn()  # Fetch current data from bot
+        passes_data = self.debug_pass_fn()
         if not self.spec:
             self.after(50, self._refresh_debug_panel_data)
-            return  # Reschedule if spec is empty
+            return
 
         for template_name, spec_details in self.spec.items():
             if not isinstance(spec_details, tuple) or len(spec_details) < 2:
-                continue  # Skip malformed entries
-            current_threshold = spec_details[1]  # Assuming (base, threshold, roi)
+                continue
+            current_threshold = spec_details[1]
             current_score = scores_data.get(template_name, 0.0)
             last_pass_score = passes_data.get(template_name, 0.0)
             self.tree.insert(
@@ -364,7 +314,6 @@ class Tuner(tk.Tk):
                 ),
             )
 
-        # Manage scrollbar visibility for scores table
         total_rows = len(self.tree.get_children())
         visible_rows = int(self.tree["height"])
         if total_rows > visible_rows:
@@ -372,18 +321,16 @@ class Tuner(tk.Tk):
         else:
             self.score_vsb.grid_remove()
 
-        # Update Log Console
         all_log_messages = list(self.debug_log_fn())
         new_log_messages = all_log_messages[self._last_log_len :]
         if new_log_messages:
-            self.log_console.config(state=tk.NORMAL)  # Enable to insert text
+            self.log_console.config(state=tk.NORMAL)
             for msg in new_log_messages:
                 self.log_console.insert(tk.END, msg + "\n")
             self.log_console.config(state=tk.DISABLED)
-            self.log_console.see(tk.END)  # Disable and scroll
+            self.log_console.see(tk.END)
         self._last_log_len = len(all_log_messages)
 
-        # Manage scrollbar visibility for log console
         num_lines_cons = int(self.log_console.index("end-1c").split(".")[0])
         vis_lines_cons = self.log_console.cget("height")
         if num_lines_cons > vis_lines_cons:
@@ -391,33 +338,23 @@ class Tuner(tk.Tk):
         else:
             self.log_vsb_console.grid_remove()
 
-        self.after(50, self._refresh_debug_panel_data)  # Schedule next refresh
+        self.after(50, self._refresh_debug_panel_data)
 
     def _apply_delay_setting(self):
-        """Applies the delay value from the entry box to the bot."""
         ms = self.var_delay.get()
-        self.delay_cb(max(10, ms))  # Call bot's setter, ensuring min 10ms
-        
-    def _apply_failsafe_timer_setting(self):
-        """Applies the failsafe timer value from the entry box to the bot."""
-        seconds = self.var_failsafe_timer.get()
-        self.failsafe_timer_cb(max(0.5, seconds))  # Call bot's setter, ensuring min 0.5s
+        self.delay_cb(max(10, ms))
 
     def _toggle_hdr_preview_mode(self):
-        """Toggles the HDR preview mode for template images in the GUI and informs the bot."""
         self.is_HDR_preview_active = self.var_hdr_preview.get()
-        self.hdr_preview_cb(
-            self.is_HDR_preview_active
-        )  # Inform bot (winrate.py's set_hdr_preview_config)
+        self.hdr_preview_cb(self.is_HDR_preview_active)
         self._log_to_gui_console(
             f"HDR Preview mode set to {self.is_HDR_preview_active}"
         )
-        self._load_data_for_selected_template()  # Reload preview image with new preference
+        self._load_data_for_selected_template()
 
     def _toggle_debug_panel_visibility(self):
-        """Toggles the debug mode and the visibility of the debug panel."""
         is_debug_enabled = self.var_debug.get()
-        self.debug_cb(is_debug_enabled)  # Inform bot of debug state change
+        self.debug_cb(is_debug_enabled)
         if is_debug_enabled:
             self.DEBUG_PANEL.pack(
                 side="right", fill="both", expand=True, padx=(8, 0), pady=8
@@ -426,57 +363,51 @@ class Tuner(tk.Tk):
             self.geometry(
                 f"{self.base_width + self.debug_extra}x{max(current_h, self.base_height)}"
             )
-            self._refresh_debug_panel_data()  # Start or ensure refresh loop is running
+            self._refresh_debug_panel_data()
         else:
-            self.DEBUG_PANEL.pack_forget()  # Hide panel
+            self.DEBUG_PANEL.pack_forget()
             current_h = self.winfo_height()
             self.geometry(f"{self.base_width}x{max(current_h, self.base_height)}")
-            # _refresh_debug_panel_data will stop itself as var_debug is now false.
 
     def _toggle_text_skip_mode(self):
-        """Toggles text skip mode and informs the bot."""
         self.text_skip_cb(self.var_text_skip.get())
 
     def _toggle_thread_lux_mode(self):
-        """Toggles Thread Lux mode, ensuring exclusivity with other Lux/Mirror modes."""
         is_enabled = self.var_lux_thread.get()
-        if is_enabled:  # If turning ON Thread Lux
+        if is_enabled:
             if self.var_lux_EXP.get():
                 self.var_lux_EXP.set(False)
-                self.lux_EXP_cb(False)  # Turn off EXP Lux
+                self.lux_EXP_cb(False)
             if self.var_mirror_full_auto.get():
                 self.var_mirror_full_auto.set(False)
-                self.mirror_full_auto_cb(False)  # Turn off Mirror Auto
-        self.lux_thread_cb(is_enabled)  # Inform bot
+                self.mirror_full_auto_cb(False)
+        self.lux_thread_cb(is_enabled)
 
     def _toggle_exp_lux_mode(self):
-        """Toggles EXP Lux mode, ensuring exclusivity."""
         is_enabled = self.var_lux_EXP.get()
-        if is_enabled:  # If turning ON EXP Lux
+        if is_enabled:
             if self.var_lux_thread.get():
                 self.var_lux_thread.set(False)
-                self.lux_thread_cb(False)  # Turn off Thread Lux
+                self.lux_thread_cb(False)
             if self.var_mirror_full_auto.get():
                 self.var_mirror_full_auto.set(False)
-                self.mirror_full_auto_cb(False)  # Turn off Mirror Auto
-        self.lux_EXP_cb(is_enabled)  # Inform bot
+                self.mirror_full_auto_cb(False)
+        self.lux_EXP_cb(is_enabled)
 
     def _toggle_mirror_full_auto_mode(self):
-        """Toggles Mirror Dungeon Full Auto mode, ensuring exclusivity."""
         is_enabled = self.var_mirror_full_auto.get()
-        if is_enabled:  # If turning ON Mirror Full Auto
+        if is_enabled:
             if self.var_lux_thread.get():
                 self.var_lux_thread.set(False)
-                self.lux_thread_cb(False)  # Turn off Thread Lux
+                self.lux_thread_cb(False)
             if self.var_lux_EXP.get():
                 self.var_lux_EXP.set(False)
-                self.lux_EXP_cb(False)  # Turn off EXP Lux
-        self.mirror_full_auto_cb(is_enabled)  # Inform bot
+                self.lux_EXP_cb(False)
+        self.mirror_full_auto_cb(is_enabled)
 
-    PREVIEW_SIZE = (128, 128)  # Dimensions for template preview images
+    PREVIEW_SIZE = (128, 128)
 
     def _load_data_for_selected_template(self, *_args):
-        """Loads and displays data (threshold, ROI, preview) for the currently selected template."""
         current_template_name = self.var_name.get()
         spec_item = self.spec.get(current_template_name)
         if not spec_item:
@@ -491,22 +422,19 @@ class Tuner(tk.Tk):
         self.var_thr_entry.set(f"{current_threshold:.3f}")
         self.lab_roi.config(text=f"ROI : {current_roi if current_roi else 'None'}")
 
-        # Determine preview image path based on HDR_preview flag and availability
         preview_suffix_order = [
             f" {st}.png"
             for st in (("HDR", "SDR") if self.is_HDR_preview_active else ("SDR", "HDR"))
         ]
-        preview_suffix_order.append(".png")  # Fallback to plain .png
+        preview_suffix_order.append(".png")
 
-        # Get the directory where the current script is located
         script_dir = os.path.dirname(__file__)
 
         img_path_to_load = None
         for suffix in preview_suffix_order:
-            # Construct the path to look inside the 'images' subfolder
             candidate_path = os.path.join(
                 script_dir, "images", base_filename + suffix.strip()
-            )  # .strip() for plain .png
+            )
             if os.path.isfile(candidate_path):
                 img_path_to_load = candidate_path
                 break
@@ -515,79 +443,56 @@ class Tuner(tk.Tk):
             self.img_label.config(image="", text="No preview")
             return
 
-        try:  # Load, resize, and display the preview image
+        try:
             raw_image = Image.open(img_path_to_load)
-            raw_image.thumbnail(
-                self.PREVIEW_SIZE, Image.Resampling.LANCZOS
-            )  # Use LANCZOS for quality
-            bg_image = Image.new(
-                "RGBA", self.PREVIEW_SIZE, (0, 0, 0, 0)
-            )  # Transparent background
+            raw_image.thumbnail(self.PREVIEW_SIZE, Image.Resampling.LANCZOS)
+            bg_image = Image.new("RGBA", self.PREVIEW_SIZE, (0, 0, 0, 0))
             x_offset = (self.PREVIEW_SIZE[0] - raw_image.width) // 2
             y_offset = (self.PREVIEW_SIZE[1] - raw_image.height) // 2
-            alpha_mask = (
-                raw_image.split()[3] if raw_image.mode == "RGBA" else None
-            )  # Use alpha for transparency
+            alpha_mask = raw_image.split()[3] if raw_image.mode == "RGBA" else None
             bg_image.paste(raw_image, (x_offset, y_offset), mask=alpha_mask)
-            self._photo_image_preview = ImageTk.PhotoImage(bg_image)  # Keep reference
+            self._photo_image_preview = ImageTk.PhotoImage(bg_image)
             self.img_label.config(image=self._photo_image_preview, text="")
         except Exception as e:
             self.img_label.config(image="", text="Preview Error")
             self._log_to_gui_console(f"Error loading preview {img_path_to_load}: {e}")
 
     def _set_threshold_from_slider(self, *_args):
-        """Updates template threshold from slider value."""
         template_name = self.var_name.get()
         if template_name not in self.spec:
             return
         base_filename, _, current_roi = self.spec[template_name]
         new_threshold = round(self.var_thr.get(), 3)
-        self.spec[template_name] = (
-            base_filename,
-            new_threshold,
-            current_roi,
-        )  # Update live spec
-        self.var_thr_entry.set(f"{new_threshold:.3f}")  # Sync entry box
-        self.update_cb()  # Notify bot to refresh its internal template data
+        self.spec[template_name] = (base_filename, new_threshold, current_roi)
+        self.var_thr_entry.set(f"{new_threshold:.3f}")
+        self.update_cb()
 
     def _set_threshold_from_entry(self, _event):
-        """Updates template threshold from entry box value (on Enter key)."""
         template_name = self.var_name.get()
         if template_name not in self.spec:
             return
         base_filename, _, current_roi = self.spec[template_name]
         try:
             entered_value = float(self.var_thr_entry.get())
-        except ValueError:  # If not a valid float, revert to current slider value
+        except ValueError:
             current_slider_val = round(self.var_thr.get(), 3)
             self.var_thr_entry.set(f"{current_slider_val:.3f}")
             return
-        clamped_value = max(
-            0.1, min(1.0, entered_value)
-        )  # Ensure value is within [0.1, 1.0]
-        self.var_thr.set(clamped_value)  # Update slider
-        self.spec[template_name] = (
-            base_filename,
-            clamped_value,
-            current_roi,
-        )  # Update live spec
-        self.update_cb()  # Notify bot
-        self.var_thr_entry.set(
-            f"{clamped_value:.3f}"
-        )  # Ensure entry box shows final value
+        clamped_value = max(0.1, min(1.0, entered_value))
+        self.var_thr.set(clamped_value)
+        self.spec[template_name] = (base_filename, clamped_value, current_roi)
+        self.update_cb()
+        self.var_thr_entry.set(f"{clamped_value:.3f}")
         self._log_to_gui_console(
             f"Set threshold for {template_name} to {clamped_value:.3f}"
         )
 
     def _reset_selected_threshold(self):
-        """Resets the selected template's threshold to its default value."""
         template_name = self.var_name.get()
         if template_name not in self.orig_spec or template_name not in self.spec:
             return
-        base_filename, default_threshold, _ = self.orig_spec[
-            template_name
-        ]  # Get default from original spec
-        _, _, current_roi = self.spec[template_name]  # Keep current ROI
+        base_filename, default_threshold, _ = self.orig_spec[template_name]
+        _, _, current_roi = self.spec[template_name]
         self.spec[template_name] = (base_filename, default_threshold, current_roi)
         self.var_thr.set(default_threshold)
         self.var_thr_entry.set(f"{default_threshold:.3f}")
@@ -597,12 +502,11 @@ class Tuner(tk.Tk):
         )
 
     def _reset_selected_roi(self):
-        """Resets the selected template's ROI to its default value."""
         template_name = self.var_name.get()
         if template_name not in self.orig_spec or template_name not in self.spec:
             return
-        base_filename, _, default_roi = self.orig_spec[template_name]  # Get default ROI
-        _, current_threshold, _ = self.spec[template_name]  # Keep current threshold
+        base_filename, _, default_roi = self.orig_spec[template_name]
+        _, current_threshold, _ = self.spec[template_name]
         self.spec[template_name] = (base_filename, current_threshold, default_roi)
         self.lab_roi.config(text=f"ROI : {default_roi if default_roi else 'None'}")
         self.update_cb()
@@ -611,48 +515,35 @@ class Tuner(tk.Tk):
         )
 
     def _save_current_config_to_json(self):
-        """Saves current configurations (delay, template specs) to saved_user_vars.json."""
-        # Prepare the data to be saved
         config_data = {
             "general_settings": {
-                "delay_ms": self.var_delay.get(),  # Get current delay from the Tkinter variable
-                "failsafe_timer_s": round(self.var_failsafe_timer.get(), 2),  # Current failsafe timer
+                "delay_ms": self.var_delay.get(),
             },
-            "templates": {},  # Placeholder for template-specific settings
+            "templates": {},
         }
 
-        # Populate template-specific settings (thresholds and ROIs)
-        # self.spec refers to the live TEMPLATE_SPEC dictionary shared with winrate.py
         for name, (base, thresh, roi) in self.spec.items():
             config_data["templates"][name] = {
                 "base": base,
-                "threshold": round(thresh, 4),  # Round threshold for cleaner JSON
-                "roi": (
-                    list(roi) if roi else None
-                ),  # Convert ROI tuple to list for JSON, or None
+                "threshold": round(thresh, 4),
+                "roi": list(roi) if roi else None,
             }
 
-        # Determine the correct path for the config file. This works whether running
-        # as a .py script or as a compiled .exe from PyInstaller.
         try:
             if getattr(sys, "frozen", False):
-                # Running in a bundle (the .exe)
                 base_path = os.path.dirname(sys.executable)
             else:
-                # Running as a normal script (the .py file)
                 base_path = os.path.dirname(__file__)
 
             file_path = os.path.join(base_path, "saved_user_vars.json")
 
-            # Write the configuration data to the JSON file
-            with open(file_path, "w", encoding="utf-8") as fp:  # Specify encoding
-                json.dump(config_data, fp, indent=2)  # Use indent for readability
+            with open(file_path, "w", encoding="utf-8") as fp:
+                json.dump(config_data, fp, indent=2)
             self._log_to_gui_console(f"Config saved to {file_path}")
         except Exception as e:
             self._log_to_gui_console(f"Error saving config: {e}")
 
     def _toggle_bot_pause_state(self):
-        """Toggles the bot's pause/resume state and updates the pause button."""
         if not self.pause_event.is_set():
             self.pause_event.set()
             self.btn_pause.config(text="Resume Bot", bg="red")
@@ -664,45 +555,35 @@ class Tuner(tk.Tk):
         self._log_to_gui_console(log_msg)
 
     def _quit_tuner_application(self):
-        """Logs quitting message and forcefully exits the application."""
         self._log_to_gui_console("Tuner quitting...")
-        os._exit(0)  # Force exit
+        os._exit(0)
 
     def _pick_roi_on_screen(self):
-        """Hides GUI, creates a fullscreen overlay for user to draw an ROI rectangle."""
         self.withdraw()
-        time.sleep(0.15)  # Hide main window, wait for it to disappear
+        time.sleep(0.15)
         try:
-            screen_w, screen_h = (
-                pyautogui.size()
-            )  # Get screen dimensions for fractional calculation
-            overlay_win = tk.Toplevel(self)  # Create a new top-level window for overlay
+            screen_w, screen_h = pyautogui.size()
+            overlay_win = tk.Toplevel(self)
             overlay_win.attributes("-fullscreen", True)
             overlay_win.attributes("-topmost", True)
             overlay_win.attributes("-alpha", 0.25)
-            overlay_win.configure(bg="black")  # Semi-transparent
+            overlay_win.configure(bg="black")
 
             canvas = tk.Canvas(
                 overlay_win, cursor="crosshair", bg="black", highlightthickness=0
             )
             canvas.pack(fill="both", expand=True)
-            rect_draw_info = {
-                "x0": 0,
-                "y0": 0,
-                "x1": 0,
-                "y1": 0,
-                "id": None,
-            }  # Store drawing state
+            rect_draw_info = {"x0": 0, "y0": 0, "x1": 0, "y1": 0, "id": None}
 
-            def on_press(e):  # Mouse button press: start drawing
+            def on_press(e):
                 rect_draw_info["x0"], rect_draw_info["y0"] = e.x, e.y
                 if rect_draw_info["id"]:
-                    canvas.delete(rect_draw_info["id"])  # Delete previous rect if any
+                    canvas.delete(rect_draw_info["id"])
                 rect_draw_info["id"] = canvas.create_rectangle(
                     e.x, e.y, e.x, e.y, outline="red", width=2
                 )
 
-            def on_drag(e):  # Mouse drag: resize rectangle
+            def on_drag(e):
                 if rect_draw_info["id"]:
                     canvas.coords(
                         rect_draw_info["id"],
@@ -711,15 +592,11 @@ class Tuner(tk.Tk):
                         e.x,
                         e.y,
                     )
-                    rect_draw_info["x1"], rect_draw_info["y1"] = (
-                        e.x,
-                        e.y,
-                    )  # Update current end point
+                    rect_draw_info["x1"], rect_draw_info["y1"] = e.x, e.y
 
-            def on_release(e):  # Mouse button release: finalize ROI
+            def on_release(e):
                 if not rect_draw_info["id"]:
                     return
-                # Ensure coordinates are ordered (x0<x1, y0<y1)
                 fx0 = min(rect_draw_info["x0"], rect_draw_info["x1"])
                 fy0 = min(rect_draw_info["y0"], rect_draw_info["y1"])
                 fx1 = max(rect_draw_info["x0"], rect_draw_info["x1"])
@@ -727,7 +604,7 @@ class Tuner(tk.Tk):
 
                 if fx0 == fx1 or fy0 == fy1:
                     self._log_to_gui_console("ROI selection cancelled or zero size.")
-                else:  # Calculate fractional ROI and update
+                else:
                     fr_x = fx0 / screen_w
                     fr_y = fy0 / screen_h
                     fr_w = (fx1 - fx0) / screen_w
@@ -735,18 +612,14 @@ class Tuner(tk.Tk):
                     sel_tpl_name = self.var_name.get()
                     base_fname, cur_thr, _ = self.spec[sel_tpl_name]
                     new_roi_tpl = tuple(round(v, 3) for v in (fr_x, fr_y, fr_w, fr_h))
-                    self.spec[sel_tpl_name] = (
-                        base_fname,
-                        cur_thr,
-                        new_roi_tpl,
-                    )  # Update live spec in winrate.py
+                    self.spec[sel_tpl_name] = (base_fname, cur_thr, new_roi_tpl)
                     self._log_to_gui_console(
                         f"Set ROI for {sel_tpl_name} to {new_roi_tpl}"
                     )
                     self.lab_roi.config(text=f"ROI : {new_roi_tpl}")
-                    self.update_cb()  # Notify bot
+                    self.update_cb()
                 overlay_win.destroy()
-                self.deiconify()  # Close overlay, show main window
+                self.deiconify()
 
             canvas.bind("<ButtonPress-1>", on_press)
             canvas.bind("<B1-Motion>", on_drag)
@@ -755,31 +628,26 @@ class Tuner(tk.Tk):
             self._log_to_gui_console(f"Error in ROI snipping: {e}")
             if "overlay_win" in locals() and overlay_win.winfo_exists():
                 overlay_win.destroy()
-            self.deiconify()  # Ensure main window is re-shown on error
+            self.deiconify()
 
     def _log_to_gui_console(self, message: str):
-        """Helper function to safely append messages to the GUI's log console."""
-        if hasattr(self, "log_console") and self.log_console:  # Check if console exists
-            self.log_console.config(state=tk.NORMAL)  # Enable to insert
-            self.log_console.insert(tk.END, message + "\n")  # Add message
+        if hasattr(self, "log_console") and self.log_console:
+            self.log_console.config(state=tk.NORMAL)
+            self.log_console.insert(tk.END, message + "\n")
             self.log_console.config(state=tk.DISABLED)
-            self.log_console.see(tk.END)  # Disable and scroll
+            self.log_console.see(tk.END)
         else:
-            print(f"GUI_LOG_FALLBACK: {message}")  # Fallback if console not ready
+            print(f"GUI_LOG_FALLBACK: {message}")
 
 
-# --- Global instance of the Tuner (GUI window) ---
 _tuner_instance: "Tuner | None" = None
 
 
 def get_tuner() -> "Tuner | None":
-    """Public function to access the single Tuner instance."""
     return _tuner_instance
 
 
-# --- Function to launch the GUI (called from winrate.py) ---
 def launch_gui(
-    # Arguments match the parameters passed from winrate.py's main()
     template_spec_from_bot,
     default_template_spec_for_reset,
     refresh_templates_callback,
@@ -801,21 +669,13 @@ def launch_gui(
     get_last_vals_fn,
     get_last_pass_fn,
     get_debug_log_fn,
-    failsafe_timer,
-    set_failsafe_timer_cb,
 ):
-    """
-    Launches the Tuner GUI in a separate thread.
-    This ensures the GUI runs independently and doesn't block the main bot logic.
-    """
-    import copy  # For deepcopying the default spec
+    import copy
 
-    # Create a deepcopy of the default spec to ensure the GUI's reset functionality
-    # uses a true original version, not a reference that might get modified elsewhere.
     orig_spec_copy_for_gui_reset = copy.deepcopy(default_template_spec_for_reset)
 
-    def _run_gui_thread_target():  # Target function for the GUI thread
-        global _tuner_instance  # Allows this thread to set the global _tuner_instance
+    def _run_gui_thread_target():
+        global _tuner_instance
         _tuner_instance = Tuner(
             live_spec=template_spec_from_bot,
             orig_spec_for_reset=orig_spec_copy_for_gui_reset,
@@ -838,22 +698,17 @@ def launch_gui(
             debug_vals_fn=get_last_vals_fn,
             debug_pass_fn=get_last_pass_fn,
             debug_log_fn=get_debug_log_fn,
-            failsafe_timer=failsafe_timer,
-            failsafe_timer_cb=set_failsafe_timer_cb,
         )
-        # After Tuner is initialized, show/hide debug panel based on its initial state.
-        # This ensures _refresh_debug_panel_data starts if initial_debug was true.
         if _tuner_instance.initial_debug_state:
             _tuner_instance.DEBUG_PANEL.pack(
                 side="right", fill="both", expand=True, padx=(8, 0), pady=8
             )
-            _tuner_instance._refresh_debug_panel_data()  # Start the refresh loop for debug panel
+            _tuner_instance._refresh_debug_panel_data()
         else:
-            _tuner_instance.DEBUG_PANEL.pack_forget()  # Ensure it's hidden if debug is off
+            _tuner_instance.DEBUG_PANEL.pack_forget()
 
-        _tuner_instance.mainloop()  # Start Tkinter event loop for the GUI
+        _tuner_instance.mainloop()
 
-    # Create and start the GUI thread. Daemon=True means it will exit when main program exits.
     gui_thread = threading.Thread(target=_run_gui_thread_target, daemon=True)
     gui_thread.start()
-    return gui_thread  # Return the thread object (optional, for potential future management)
+    return gui_thread
