@@ -206,7 +206,7 @@ def active_window_title():
         return ""
 
 
-grabber = mss.mss()
+grabber = mss.MSS()
 mon = grabber.monitors[1] if len(grabber.monitors) > 1 else grabber.monitors[0]
 scale_x, scale_y = (
     mon["width"] / pyautogui.size()[0],

@@ -5,7 +5,26 @@ ECHO.
 
 REM --- Configuration ---
 ECHO Setting configuration variables...
-SET PYTHON_VERSION_SPECIFIER=-3.13
+SET "PYTHON_VERSION_SPECIFIER=-3.13"
+
+ECHO Using Python 3.13 or newer...
+py %PYTHON_VERSION_SPECIFIER% --version
+
+ECHO Checking for PyInstaller...
+py %PYTHON_VERSION_SPECIFIER% -m PyInstaller --version >nul 2>&1
+
+IF !ERRORLEVEL! NEQ 0 (
+    ECHO PyInstaller not found. Installing...
+    py %PYTHON_VERSION_SPECIFIER% -m pip install --upgrade pip
+    py %PYTHON_VERSION_SPECIFIER% -m pip install pyinstaller
+
+    IF !ERRORLEVEL! NEQ 0 (
+        ECHO Failed to install PyInstaller. Aborting.
+        EXIT /B 1
+    )
+) ELSE (
+    ECHO PyInstaller is already installed.
+)
 
 REM Adjusted paths for subfolders
 SET MULTITHREADED_SCRIPT_NAME=assets\multithreaded_winrate.py
@@ -65,7 +84,7 @@ ECHO Checking for icon file...
 SET "MULTITHREADED_ICON_OPTION_CMD="
 IF EXIST "%MULTITHREADED_ICON_PATH%" (
     ECHO Found icon for MULTITHREADED bot: %MULTITHREADED_ICON_PATH%
-    SET "MULTITHREADED_ICON_OPTION_CMD=--icon="%MULTITHREADED_ICON_PATH%""
+    SET "MULTITHREADED_ICON_OPTION_CMD=--icon=""%MULTITHREADED_ICON_PATH%"""
 ) ELSE (
     ECHO WARNING: Icon file for MULTITHREADED bot NOT FOUND at "%MULTITHREADED_ICON_PATH%"
 )
@@ -117,7 +136,7 @@ ECHO ---
 GOTO CheckCompileResult
 
 :CheckCompileResult
-IF %ERRORLEVEL% NEQ 0 (
+IF !ERRORLEVEL! NEQ 0 (
     ECHO --------------------------------------------------------------------
     ECHO ERROR: PyInstaller failed for MULTITHREADED version.
     ECHO Please check the output above for specific error messages.
