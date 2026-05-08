@@ -10,7 +10,7 @@ crash_logs/
 *.so
 
 # JSON threshold / roi save data
-*.json
+assets/*.json
 
 # Distribution / packaging
 build/
@@ -20,9 +20,16 @@ dist/
 # PyInstaller
 *.spec
 
+# VENV
+.venv/
+
 # VS Code
 .vscode/
 
 # OS files
 .DS_Store
 Thumbs.db
+
+# EXE files
+*.exe
+*.exe.lnk

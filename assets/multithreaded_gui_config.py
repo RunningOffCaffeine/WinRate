@@ -289,6 +289,23 @@ class Tuner(tk.Tk):
         if not self.var_debug.get():
             return
 
+        all_log_messages = list(self.debug_log_fn())
+        new_log_messages = all_log_messages[self._last_log_len :]
+        if new_log_messages:
+            self.log_console.config(state=tk.NORMAL)
+            for msg in new_log_messages:
+                self.log_console.insert(tk.END, msg + "\n")
+            self.log_console.config(state=tk.DISABLED)
+            self.log_console.see(tk.END)
+        self._last_log_len = len(all_log_messages)
+
+        num_lines_cons = int(self.log_console.index("end-1c").split(".")[0])
+        vis_lines_cons = self.log_console.cget("height")
+        if num_lines_cons > vis_lines_cons:
+            self.log_vsb_console.grid()
+        else:
+            self.log_vsb_console.grid_remove()
+
         for iid in self.tree.get_children():
             self.tree.delete(iid)
         scores_data = self.debug_vals_fn()
@@ -321,23 +338,6 @@ class Tuner(tk.Tk):
         else:
             self.score_vsb.grid_remove()
 
-        all_log_messages = list(self.debug_log_fn())
-        new_log_messages = all_log_messages[self._last_log_len :]
-        if new_log_messages:
-            self.log_console.config(state=tk.NORMAL)
-            for msg in new_log_messages:
-                self.log_console.insert(tk.END, msg + "\n")
-            self.log_console.config(state=tk.DISABLED)
-            self.log_console.see(tk.END)
-        self._last_log_len = len(all_log_messages)
-
-        num_lines_cons = int(self.log_console.index("end-1c").split(".")[0])
-        vis_lines_cons = self.log_console.cget("height")
-        if num_lines_cons > vis_lines_cons:
-            self.log_vsb_console.grid()
-        else:
-            self.log_vsb_console.grid_remove()
-
         self.after(50, self._refresh_debug_panel_data)
 
     def _apply_delay_setting(self):
@@ -356,16 +356,18 @@ class Tuner(tk.Tk):
         is_debug_enabled = self.var_debug.get()
         self.debug_cb(is_debug_enabled)
         if is_debug_enabled:
-            self.DEBUG_PANEL.pack(
-                side="right", fill="both", expand=True, padx=(8, 0), pady=8
-            )
+            if self.DEBUG_PANEL:
+                self.DEBUG_PANEL.pack(
+                    side="right", fill="both", expand=True, padx=(8, 0), pady=8
+                )
             current_h = self.winfo_height()
             self.geometry(
                 f"{self.base_width + self.debug_extra}x{max(current_h, self.base_height)}"
             )
             self._refresh_debug_panel_data()
         else:
-            self.DEBUG_PANEL.pack_forget()
+            if self.DEBUG_PANEL:
+                self.DEBUG_PANEL.pack_forget()
             current_h = self.winfo_height()
             self.geometry(f"{self.base_width}x{max(current_h, self.base_height)}")
 
@@ -700,12 +702,14 @@ def launch_gui(
             debug_log_fn=get_debug_log_fn,
         )
         if _tuner_instance.initial_debug_state:
-            _tuner_instance.DEBUG_PANEL.pack(
-                side="right", fill="both", expand=True, padx=(8, 0), pady=8
-            )
+            if _tuner_instance.DEBUG_PANEL is not None:
+                _tuner_instance.DEBUG_PANEL.pack(
+                    side="right", fill="both", expand=True, padx=(8, 0), pady=8
+                )
             _tuner_instance._refresh_debug_panel_data()
         else:
-            _tuner_instance.DEBUG_PANEL.pack_forget()
+            if _tuner_instance.DEBUG_PANEL is not None:
+                _tuner_instance.DEBUG_PANEL.pack_forget()
 
         _tuner_instance.mainloop()
 

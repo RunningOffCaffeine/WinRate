@@ -9,15 +9,11 @@ import os
 import threading
 import time
 import sys
-import json
 import random
 from collections import namedtuple
 import copy
 from concurrent.futures import ThreadPoolExecutor
-import math
-import traceback
 from datetime import datetime
-
 
 # ── auto-installer for third-party packages ───────────────────────────
 def _require(pkg, import_as=None, pypi_name=None):
@@ -58,7 +54,6 @@ if getattr(sys, "frozen", False):
     import keyboard
     import pygetwindow as gw
     import mss
-    from PIL import Image, ImageTk 
 else:
     cv2 = _require("cv2", pypi_name="opencv-python")
     np        = _require("numpy")
@@ -67,7 +62,7 @@ else:
     gw        = _require("pygetwindow", import_as="pygetwindow") 
     mss       = _require("mss")
     _require("PIL", pypi_name="Pillow") 
-    from PIL import Image, ImageTk 
+
 
 # --- GUI Import ---
 try:
@@ -164,7 +159,7 @@ APPLICATION_BASE_PATH = get_application_path()
 
 def resource_path(fname):
     base = (
-        sys._MEIPASS
+        getattr(sys, "_MEIPASS")
         if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
         else os.path.dirname(os.path.abspath(__file__))
     )
@@ -201,9 +196,22 @@ def _refresh_templates_from_gui():
 
 def active_window_title():
     try:
-        return gw.getActiveWindow().title
+        window = gw.getActiveWindow()
+        return window.title if window else ""
     except:
         return ""
+
+
+def append_debug_log(message: str):
+    """Append a timestamped message for the GUI debug log."""
+    if not DEBUG_MATCH:
+        return
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    with debug_log_lock:
+        debug_log.append(f"[{timestamp}] {message}")
+        # Keep the GUI responsive during long sessions.
+        if len(debug_log) > 500:
+            del debug_log[: len(debug_log) - 500]
 
 
 grabber = mss.MSS()
@@ -261,16 +269,19 @@ def best_match(screen_gray, tmpl_obj):
             _, mv, _, ml = cv2.minMaxLoc(res)
             if mv > bv:
                 bv, bl, bz = mv, ml, (tw, th)
-    if bv >= tmpl_obj.thresh:
-        return (x_r + bl[0] + bz[0] // 2, y_r + bl[1] + bz[1] // 2)
-    return None
+    if bl is not None and bz is not None:
+        pt = (x_r + bl[0] + bz[0] // 2, y_r + bl[1] + bz[1] // 2)
+    else:
+        pt = None
+
+    return pt, float(bv)
 
 
 def limbus_bot():
     last_grab = 0.0
     need_refresh = True
     scr = None
-    PRIO = ["winrate"]
+    append_debug_log("Debug log started.")
 
     while True:
         if pause_event.is_set() or "LimbusCompany" not in active_window_title():
@@ -284,26 +295,61 @@ def limbus_bot():
         if scr is None:
             continue
 
-        batch = {n: TEMPLATES[n] for n in PRIO if n in TEMPLATES}
+        # Check whatever templates are currently loaded. This supports winrate-only
+        # configs and any other combination of tests added to TEMPLATE_SPEC.
+        active_tests = [name for name in TEMPLATE_SPEC.keys() if name in TEMPLATES]
+        batch = {name: TEMPLATES[name] for name in active_tests}
         results = {}
-        with ThreadPoolExecutor() as exe:
-            futs = {exe.submit(best_match, scr, obj): n for n, obj in batch.items()}
-            for f in futs:
-                results[futs[f]] = f.result()
+
+        if batch:
+            with ThreadPoolExecutor(max_workers=max(1, len(batch))) as exe:
+                futs = {
+                    exe.submit(best_match, scr, obj): name
+                    for name, obj in batch.items()
+                }
+
+                for f in futs:
+                    name = futs[f]
+                    try:
+                        res = f.result()
+                        if res is None:
+                            point, score = None, 0.0
+                        else:
+                            point, score = res
+                    except Exception as exc:
+                        point, score = None, 0.0
+                        append_debug_log(f"{name}: match error: {exc}")
+
+                    score = max(0.0, min(1.0, float(score)))
+                    threshold = max(0.0, min(1.0, float(TEMPLATES[name].thresh)))
+
+                    last_vals[name] = score
+
+                    if score >= threshold:
+                        results[name] = point
+                        last_pass[name] = score
+                        append_debug_log(f"{name}: PASS {score:.3f}>={threshold:.3f}")
+        else:
+            append_debug_log(
+                "No templates loaded. Check image filenames and TEMPLATE_SPEC."
+            )
+            time.sleep(0.5)
+            continue
 
         if results.get("winrate"):
-            h, w = scr.shape
+            # h, w = scr.shape
 
-            # Apply jitter to coordinates to simulate human inaccuracy
-            target_x = (w // 2) + random.randint(-15, 15)
-            target_y = int(h * 0.1) + random.randint(-10, 10)
+            # # Apply jitter to coordinates to simulate human inaccuracy
+            # target_x = (w // 2) + random.randint(-15, 15)
+            # target_y = int(h * 0.1) + random.randint(-10, 10)
 
-            pyautogui.click(target_x, target_y)
+            # random_delay(0.75, 1.5)
+            # pyautogui.click(target_x, target_y)
 
             # Randomized timing gaps
-            random_delay(0.08, 0.25)
+            random_delay(0.5, 3.0)
             keyboard.press_and_release("p")
-            random_delay(0.35, 0.7)
+            random_delay(0.2, 0.5)
             keyboard.press_and_release("enter")
             random_delay(0.5, 1.1)
 

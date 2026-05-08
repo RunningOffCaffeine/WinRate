@@ -1,0 +1,257 @@
+{
+  "general_settings": {
+    "delay_ms": 100
+  },
+  "templates": {
+    "winrate": {
+      "base": "winrate",
+      "threshold": 0.72,
+      "roi": [
+        0.5,
+        0.7,
+        0.5,
+        0.3
+      ]
+    },
+    "speech_menu": {
+      "base": "Speech Menu",
+      "threshold": 0.9,
+      "roi": [
+        0.5,
+        0.0,
+        0.5,
+        0.3
+      ]
+    },
+    "fast_forward": {
+      "base": "Fast Forward",
+      "threshold": 0.75,
+      "roi": [
+        0.45,
+        0.0,
+        0.35,
+        0.2
+      ]
+    },
+    "confirm": {
+      "base": "Confirm",
+      "threshold": 0.8,
+      "roi": [
+        0.35,
+        0.55,
+        0.35,
+        0.25
+      ]
+    },
+    "black_confirm": {
+      "base": "Black Confirm",
+      "threshold": 0.85,
+      "roi": [
+        0.36,
+        0.67,
+        0.26,
+        0.12
+      ]
+    },
+    "black_confirm_v2": {
+      "base": "Black Confirm Wide",
+      "threshold": 0.8,
+      "roi": [
+        0.7,
+        0.7,
+        0.3,
+        0.3
+      ]
+    },
+    "battle": {
+      "base": "To Battle",
+      "threshold": 0.9,
+      "roi": [
+        0.7,
+        0.7,
+        0.3,
+        0.3
+      ]
+    },
+    "chain_battle": {
+      "base": "Battle Chain",
+      "threshold": 0.82,
+      "roi": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    "skip": {
+      "base": "Skip",
+      "threshold": 0.775,
+      "roi": [
+        0.0,
+        0.3,
+        0.5,
+        0.4
+      ]
+    },
+    "enter": {
+      "base": "Enter",
+      "threshold": 0.8,
+      "roi": [
+        0.5,
+        0.6,
+        0.5,
+        0.4
+      ]
+    },
+    "selectable": {
+      "base": "Choice Check",
+      "threshold": 0.7,
+      "roi": [
+        0.45,
+        0.2,
+        0.45,
+        0.15
+      ]
+    },
+    "fusion_check": {
+      "base": "Fusion Check",
+      "threshold": 0.7,
+      "roi": [
+        0.2,
+        0.0,
+        0.6,
+        0.3
+      ]
+    },
+    "ego_get": {
+      "base": "EGO Get",
+      "threshold": 0.8,
+      "roi": [
+        0.33,
+        0.22,
+        0.33,
+        0.1
+      ]
+    },
+    "proceed": {
+      "base": "Proceed",
+      "threshold": 0.825,
+      "roi": [
+        0.5,
+        0.7,
+        0.5,
+        0.3
+      ]
+    },
+    "very_high": {
+      "base": "Very High",
+      "threshold": 0.85,
+      "roi": [
+        0.0,
+        0.7,
+        1.0,
+        0.3
+      ]
+    },
+    "commence": {
+      "base": "Commence",
+      "threshold": 0.9,
+      "roi": [
+        0.5,
+        0.7,
+        0.5,
+        0.3
+      ]
+    },
+    "commence_battle": {
+      "base": "Commence Battle",
+      "threshold": 0.825,
+      "roi": [
+        0.5,
+        0.7,
+        0.5,
+        0.3
+      ]
+    },
+    "continue": {
+      "base": "Continue",
+      "threshold": 0.825,
+      "roi": [
+        0.5,
+        0.7,
+        0.5,
+        0.3
+      ]
+    },
+    "luxcavations": {
+      "base": "Luxcavations",
+      "threshold": 0.8,
+      "roi": [
+        0.22,
+        0.08,
+        0.25,
+        0.4
+      ]
+    },
+    "select_exp_lux": {
+      "base": "Select EXP Lux",
+      "threshold": 0.8,
+      "roi": [
+        0.04,
+        0.3,
+        0.15,
+        0.12
+      ]
+    },
+    "select_thread_lux": {
+      "base": "Select Thread Lux",
+      "threshold": 0.8,
+      "roi": [
+        0.04,
+        0.4,
+        0.15,
+        0.12
+      ]
+    },
+    "lux_enter": {
+      "base": "Lux Enter",
+      "threshold": 0.8,
+      "roi": [
+        0.2,
+        0.55,
+        0.8,
+        0.25
+      ]
+    },
+    "exp_lux_enter": {
+      "base": "EXP Lux Enter",
+      "threshold": 0.8,
+      "roi": [
+        0.2,
+        0.6,
+        0.8,
+        0.2
+      ]
+    },
+    "thread_lux_battle": {
+      "base": "Thread Lux Battle Select",
+      "threshold": 0.8,
+      "roi": [
+        0.3,
+        0.3,
+        0.42,
+        0.45
+      ]
+    },
+    "drive": {
+      "base": "Drive",
+      "threshold": 0.92,
+      "roi": [
+        0.5,
+        0.8,
+        0.5,
+        0.2
+      ]
+    }
+  }
+}
