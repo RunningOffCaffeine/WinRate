@@ -41,6 +41,7 @@ class Tuner(tk.Tk):
         initial_lux_thread_state,
         initial_lux_EXP_state,
         initial_mirror_full_auto_state,
+        initial_background_mode_state,
         delay_cb,
         hdr_preview_cb,
         debug_cb,
@@ -48,6 +49,7 @@ class Tuner(tk.Tk):
         lux_thread_cb,
         lux_EXP_cb,
         mirror_full_auto_cb,
+        background_mode_cb,
         debug_vals_fn,
         debug_pass_fn,
         debug_log_fn,
@@ -88,6 +90,7 @@ class Tuner(tk.Tk):
         self.lux_thread_cb = lux_thread_cb
         self.lux_EXP_cb = lux_EXP_cb
         self.mirror_full_auto_cb = mirror_full_auto_cb
+        self.background_mode_cb = background_mode_cb
 
         self.var_delay = tk.IntVar(value=initial_delay_ms)
         self.var_hdr_preview = tk.BooleanVar(value=initial_is_HDR_for_preview)
@@ -96,6 +99,7 @@ class Tuner(tk.Tk):
         self.var_lux_thread = tk.BooleanVar(value=initial_lux_thread_state)
         self.var_lux_EXP = tk.BooleanVar(value=initial_lux_EXP_state)
         self.var_mirror_full_auto = tk.BooleanVar(value=initial_mirror_full_auto_state)
+        self.var_background_mode = tk.BooleanVar(value=initial_background_mode_state)
 
         self.DEBUG_PANEL = None
         self._last_log_len = 0
@@ -155,6 +159,12 @@ class Tuner(tk.Tk):
             variable=self.var_lux_EXP,
             command=self._toggle_exp_lux_mode,
         ).grid(row=2, column=1, sticky="w", padx=20, pady=2)
+        ttk.Checkbutton(
+            chk_frame,
+            text="Background Mode",
+            variable=self.var_background_mode,
+            command=self._toggle_background_mode,
+        ).grid(row=3, column=1, sticky="w", padx=20, pady=2)
 
         first_template_name = next(iter(self.spec)) if self.spec else ""
         self.var_name = tk.StringVar(value=first_template_name)
@@ -406,6 +416,10 @@ class Tuner(tk.Tk):
                 self.var_lux_EXP.set(False)
                 self.lux_EXP_cb(False)
         self.mirror_full_auto_cb(is_enabled)
+
+    def _toggle_background_mode(self):
+        is_enabled = self.var_background_mode.get()
+        self.background_mode_cb(is_enabled)
 
     PREVIEW_SIZE = (128, 128)
 
@@ -661,6 +675,7 @@ def launch_gui(
     initial_lux_thread,
     initial_lux_EXP,
     initial_mirror_full_auto,
+    initial_background_mode,
     set_delay_ms_cb,
     set_hdr_preview_cb,
     set_debug_mode_cb,
@@ -668,6 +683,7 @@ def launch_gui(
     set_lux_thread_cb,
     set_lux_EXP_cb,
     set_mirror_full_auto_cb,
+    set_background_mode_cb,
     get_last_vals_fn,
     get_last_pass_fn,
     get_debug_log_fn,
@@ -690,6 +706,7 @@ def launch_gui(
             initial_lux_thread_state=initial_lux_thread,
             initial_lux_EXP_state=initial_lux_EXP,
             initial_mirror_full_auto_state=initial_mirror_full_auto,
+            initial_background_mode_state=initial_background_mode,
             delay_cb=set_delay_ms_cb,
             hdr_preview_cb=set_hdr_preview_cb,
             debug_cb=set_debug_mode_cb,
@@ -697,6 +714,7 @@ def launch_gui(
             lux_thread_cb=set_lux_thread_cb,
             lux_EXP_cb=set_lux_EXP_cb,
             mirror_full_auto_cb=set_mirror_full_auto_cb,
+            background_mode_cb=set_background_mode_cb,
             debug_vals_fn=get_last_vals_fn,
             debug_pass_fn=get_last_pass_fn,
             debug_log_fn=get_debug_log_fn,

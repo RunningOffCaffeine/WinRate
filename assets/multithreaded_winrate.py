@@ -14,6 +14,8 @@ from collections import namedtuple
 import copy
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+import ctypes
+from ctypes import wintypes
 
 # ── auto-installer for third-party packages ───────────────────────────
 def _require(pkg, import_as=None, pypi_name=None):
@@ -72,6 +74,89 @@ except ImportError as e:
         f"CRITICAL ERROR: GUI module (multithreaded_gui_config.py) could not be imported. {e}"
     )
 
+
+# --- Windows API for Background Input ---
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
+VK_P = 0x50
+VK_RETURN = 0x0D
+
+user32 = ctypes.windll.user32
+
+# Cache for window handle
+_cached_hwnd = None
+_cached_hwnd_lock = threading.Lock()
+
+
+def find_game_window():
+    """Find the Limbus Company game window handle."""
+    try:
+        # First try exact title match using Windows API
+        hwnd = user32.FindWindowW(None, "LimbusCompany")
+        if hwnd:
+            return hwnd
+
+        # Try partial match with pygetwindow
+        windows = gw.getWindowsWithTitle("LimbusCompany")
+        if windows:
+            return windows[0]._hWnd
+
+        # Try other common window titles
+        for title in ["Limbus", "limbus"]:
+            hwnd = user32.FindWindowW(None, title)
+            if hwnd:
+                return hwnd
+            windows = gw.getWindowsWithTitle(title)
+            if windows:
+                return windows[0]._hWnd
+
+        return None
+    except Exception:
+        return None
+
+
+def send_key_with_focus_pulse(key_str):
+    """Temporarily focuses the game, sends ONE key, and restores focus instantly."""
+    global _cached_hwnd
+    hwnd = _cached_hwnd if _cached_hwnd else find_game_window()
+    if not hwnd:
+        return False
+
+    try:
+        with _cached_hwnd_lock:
+            _cached_hwnd = hwnd
+
+        # Get current foreground window
+        current_fg = user32.GetForegroundWindow()
+
+        # If game is already in foreground, just send inputs directly
+        if current_fg == hwnd:
+            keyboard.press_and_release(key_str)
+            return True
+
+        # Bring game to front (SW_RESTORE=9 in case it's minimized)
+        user32.ShowWindow(hwnd, 9)
+        user32.SetForegroundWindow(hwnd)
+        time.sleep(0.03)  # Lightning fast wait for window switch
+
+        # Hardware key simulation to the now-foreground game
+        keyboard.press_and_release(key_str)
+
+        time.sleep(0.02)  # Tiny wait for game engine to read input
+
+        # Restore previous foreground window instantly
+        if current_fg and current_fg != hwnd:
+            user32.SetForegroundWindow(current_fg)
+
+        return True
+    except Exception as e:
+        try:
+            append_debug_log(f"Focus pulse failed: {e}")
+        except:
+            pass
+        return False
+
+
 # --- Global Variables ---
 pause_event = threading.Event()
 delay_ms = 10
@@ -81,6 +166,7 @@ text_skip = False
 lux_thread = False
 lux_EXP = False
 full_auto_mirror = False
+background_mode = False  # Allow bot to run even when window is not foreground
 CHECK_INTERVAL = delay_ms / 1000.0
 DEBUG_MATCH = debug_flag
 last_vals: dict[str, float] = {}
@@ -145,6 +231,11 @@ def set_lux_exp_config(state):
 def set_full_auto_mirror_config(state):
     global full_auto_mirror
     full_auto_mirror = state
+
+
+def set_background_mode_config(state):
+    global background_mode
+    background_mode = state
 
 
 # --- Utilities ---
@@ -221,8 +312,87 @@ scale_x, scale_y = (
     mon["height"] / pyautogui.size()[1],
 )
 
+gdi32 = ctypes.windll.gdi32
+
+
+class BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ("biSize", wintypes.DWORD),
+        ("biWidth", wintypes.LONG),
+        ("biHeight", wintypes.LONG),
+        ("biPlanes", wintypes.WORD),
+        ("biBitCount", wintypes.WORD),
+        ("biCompression", wintypes.DWORD),
+        ("biSizeImage", wintypes.DWORD),
+        ("biXPelsPerMeter", wintypes.LONG),
+        ("biYPelsPerMeter", wintypes.LONG),
+        ("biClrUsed", wintypes.DWORD),
+        ("biClrImportant", wintypes.DWORD),
+    ]
+
+
+class BITMAPINFO(ctypes.Structure):
+    _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", wintypes.DWORD * 3)]
+
+
+def capture_window_cv2(hwnd):
+    """Captures a specific window's contents directly using PrintWindow."""
+    rect = wintypes.RECT()
+    user32.GetClientRect(hwnd, ctypes.byref(rect))
+    width = rect.right - rect.left
+    height = rect.bottom - rect.top
+
+    if width <= 0 or height <= 0:
+        return None
+
+    hwndDC = user32.GetWindowDC(hwnd)
+    mfcDC = gdi32.CreateCompatibleDC(hwndDC)
+    saveBitMap = gdi32.CreateCompatibleBitmap(hwndDC, width, height)
+    gdi32.SelectObject(mfcDC, saveBitMap)
+
+    # PW_RENDERFULLCONTENT (2) | PW_CLIENTONLY (1) = 3
+    # This flag allows capturing hardware-accelerated windows in Windows 8.1+
+    result = user32.PrintWindow(hwnd, mfcDC, 3)
+
+    if result == 0:
+        gdi32.DeleteObject(saveBitMap)
+        gdi32.DeleteDC(mfcDC)
+        user32.ReleaseDC(hwnd, hwndDC)
+        return None
+
+    bmp_info = BITMAPINFO()
+    bmp_info.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    bmp_info.bmiHeader.biWidth = width
+    bmp_info.bmiHeader.biHeight = -height  # Negative for Top-down
+    bmp_info.bmiHeader.biPlanes = 1
+    bmp_info.bmiHeader.biBitCount = 32
+    bmp_info.bmiHeader.biCompression = 0  # BI_RGB
+
+    buffer = ctypes.create_string_buffer(width * height * 4)
+    gdi32.GetDIBits(mfcDC, saveBitMap, 0, height, buffer, ctypes.byref(bmp_info), 0)
+
+    gdi32.DeleteObject(saveBitMap)
+    gdi32.DeleteDC(mfcDC)
+    user32.ReleaseDC(hwnd, hwndDC)
+
+    # Convert raw BGRA buffer to numpy array, then to grayscale
+    img = np.frombuffer(buffer, dtype=np.uint8).reshape((height, width, 4))
+    return cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
+
 
 def refresh_screen():
+    global _cached_hwnd
+
+    if background_mode:
+        hwnd = _cached_hwnd if _cached_hwnd else find_game_window()
+        if hwnd:
+            with _cached_hwnd_lock:
+                _cached_hwnd = hwnd
+            img = capture_window_cv2(hwnd)
+            if img is not None:
+                return img
+
+    # Fallback to standard monitor capture if not in background mode or PrintWindow fails
     try:
         return cv2.cvtColor(np.array(grabber.grab(mon))[:, :, :3], cv2.COLOR_BGR2GRAY)
     except:
@@ -284,7 +454,12 @@ def limbus_bot():
     append_debug_log("Debug log started.")
 
     while True:
-        if pause_event.is_set() or "LimbusCompany" not in active_window_title():
+        if pause_event.is_set():
+            time.sleep(0.5)
+            continue
+
+        # If not in background mode, check if window is active
+        if not background_mode and "LimbusCompany" not in active_window_title():
             time.sleep(0.5)
             continue
 
@@ -346,11 +521,33 @@ def limbus_bot():
             # random_delay(0.75, 1.5)
             # pyautogui.click(target_x, target_y)
 
-            # Randomized timing gaps
+            # Randomized timing gaps (bot avoidance)
             random_delay(0.5, 3.0)
-            keyboard.press_and_release("p")
-            random_delay(0.2, 0.5)
-            keyboard.press_and_release("enter")
+
+            if background_mode:
+                # Use lightning-fast focus stealing pulses to minimize interruption
+                append_debug_log("Pulsing P key")
+                success_p = send_key_with_focus_pulse("p")
+
+                # Do the random bot-avoidance delay while focus is safely restored to your app!
+                random_delay(0.4, 0.9)
+
+                append_debug_log("Pulsing ENTER key")
+                success_enter = send_key_with_focus_pulse("enter")
+
+                if not success_p or not success_enter:
+                    append_debug_log(
+                        "Focus method failed, falling back to foreground inputs"
+                    )
+                    keyboard.press_and_release("p")
+                    random_delay(0.4, 0.9)
+                    keyboard.press_and_release("enter")
+            else:
+                # Send inputs to foreground window (traditional method)
+                keyboard.press_and_release("p")
+                random_delay(0.2, 0.5)
+                keyboard.press_and_release("enter")
+
             random_delay(0.5, 1.1)
 
             need_refresh = True
@@ -376,6 +573,7 @@ def main():
         initial_lux_thread=lux_thread,
         initial_lux_EXP=lux_EXP,
         initial_mirror_full_auto=full_auto_mirror,
+        initial_background_mode=background_mode,
         set_delay_ms_cb=set_delay_ms_config,
         set_hdr_preview_cb=set_hdr_preview_config,
         set_debug_mode_cb=set_debug_mode_config,
@@ -383,6 +581,7 @@ def main():
         set_lux_thread_cb=set_lux_thread_config,
         set_lux_EXP_cb=set_lux_exp_config,
         set_mirror_full_auto_cb=set_full_auto_mirror_config,
+        set_background_mode_cb=set_background_mode_config,
         get_last_vals_fn=lambda: last_vals,
         get_last_pass_fn=lambda: last_pass,
         get_debug_log_fn=lambda: debug_log,
